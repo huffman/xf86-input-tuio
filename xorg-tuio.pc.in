@@ -1,0 +1,6 @@
+sdkdir=@sdkdir@
+
+Name: xorg-tuio
+Description: X.Org TUIO input driver.
+Version: @PACKAGE_VERSION@
+Cflags: -I${sdkdir}

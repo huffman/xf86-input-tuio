@@ -1,0 +1,33 @@
+.\" shorthand for double quote that works everywhere.
+.ds q \N'34'
+.TH TUIO __drivermansuffix__ __vendorversion__
+.SH NAME
+tuio \- Multitouch TUIO Linux input driver
+.SH SYNOPSIS
+.nf
+.B "Section \*qInputDevice\*q"
+\ \ ...
+.B EndSection
+.fi
+.SH DESCRIPTION
+.B tuio
+is an __xservername__ input driver.
+.PP
+.SH SUPPORTED HARDWARE
+TODO
+.PP
+.SH CONFIGURATION DETAILS
+TODO
+.PP
+.SH SUPPORTED PROPERTIES
+The following properties are provided by the
+.B tuio
+driver.
+
+TODO
+
+.SH AUTHORS
+Ryan Huffman <ryanhuffman@gmail.com>
+.SH "SEE ALSO"
+__xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), Xserver(__appmansuffix__), X(__miscmansuffix__),
+.
