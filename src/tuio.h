@@ -31,5 +31,8 @@
 #include <X11/extensions/XI.h>
 #include <xf86Xinput.h>
 
+typedef struct _TuioDevice {
+} TuioDeviceRec, *TuioDevicePtr;
+
 #endif
 

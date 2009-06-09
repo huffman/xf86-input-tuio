@@ -58,6 +58,13 @@ TuioPreInit(InputDriverPtr, IDevPtr, int);
 static void
 TuioUnInit(InputDriverPtr, InputInfoPtr, int);
 
+static void
+TuioReadInput(InputInfoPtr);
+
+static int
+TuioControl(DeviceIntPtr, int);
+
+
 static XF86ModuleVersionInfo TuioVersionRec =
 {
     "tuio",
@@ -92,17 +99,66 @@ _X_EXPORT XF86ModuleData tuioModuleData =
 
 static pointer
 TuioPlug(pointer	module,
-          pointer	options,
-          int		*errmaj,
-          int		*errmin)
+         pointer	options,
+         int		*errmaj,
+         int		*errmin)
 {
-    xf86AddInputDriver(&TUIO, module, 0);
     return module;
 }
 
 static void
 TuioUnplug(pointer	p)
 {
+}
+
+/**
+ * TODO:
+ *  - Parse configuration options
+ *  - Setup internal data
+ */
+static InputInfoPtr
+TuioPreInit(InputDriverPtr drv, IDevPtr dev, int flags)
+{
+    InputInfoPtr  pInfo;
+    TuioDevicePtr pTuio;
+    const char *device;
+
+    if (!(pInfo = xf86AllocateInput(drv, 0)))
+        return NULL;
+
+    pTuio = xcalloc(1, sizeof(TuioDeviceRec));
+    if (!pTuio) {
+            pInfo->private = NULL;
+            xf86DeleteInput(pInfo, 0);
+            return NULL;
+    }
+
+    pInfo->private = pTuio;
+
+    pInfo->name = xstrdup(dev->identifier);
+    pInfo->flags = 0;
+    pInfo->type_name = XI_TOUCHSCREEN;
+    pInfo->conf_idev = dev;
+    pInfo->read_input = TuioReadInput;
+    pInfo->switch_mode = NULL;
+    pInfo->device_control = TuioControl;
+    
+    xf86CollectInputOptions(pInfo, NULL, NULL);
+    xf86ProcessCommonOptions(pInfo, pInfo->options);
+
+    pInfo->flags |= XI86_OPEN_ON_INIT;
+    pInfo->flags |= XI86_CONFIGURED;
+
+    return pInfo;
+}
+
+static void
+TuioUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
+{
+    TuioDevicePtr pTuio = pInfo->private;
+
+    xfree(pTuio);
+    xf86DeleteInput(pInfo, 0);
 }
 
 static void
@@ -114,22 +170,5 @@ static int
 TuioControl(DeviceIntPtr device, int what)
 {
     return 1;
-}
-
-static InputInfoPtr
-TuioPreInit(InputDriverPtr drv, IDevPtr dev, int flags)
-{
-    InputInfoPtr pInfo;
-    const char *device;
-
-    if (!(pInfo = xf86AllocateInput(drv, 0)))
-        return NULL;
-
-    return pInfo;
-}
-
-static void
-TuioUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
-{
 }
 
