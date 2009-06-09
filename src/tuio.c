@@ -52,7 +52,10 @@ TuioUnplug(pointer);
 
 /* Driver Function */
 static InputInfoPtr
-TuioPreInit(InputDriverPtr drv, IDevPtr dev, int flags);
+TuioPreInit(InputDriverPtr, IDevPtr, int);
+
+static void
+TuioUnInit(InputDriverPtr, InputInfoPtr, int);
 
 static XF86ModuleVersionInfo TuioVersionRec =
 {
