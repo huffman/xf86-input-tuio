@@ -36,6 +36,7 @@
 #include <X11/extensions/XIproto.h>
 #include <X11/extensions/XInput2.h>
 #include <xf86_OSlib.h>
+#include <lo/lo.h>
 
 #include "tuio.h"
 
