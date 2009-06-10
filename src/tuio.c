@@ -51,7 +51,7 @@ TuioPlug(pointer, pointer, int *, int *);
 static void
 TuioUnplug(pointer);
 
-/* Driver Function */
+/* Driver Functions */
 static InputInfoPtr
 TuioPreInit(InputDriverPtr, IDevPtr, int);
 
@@ -63,6 +63,20 @@ TuioReadInput(InputInfoPtr);
 
 static int
 TuioControl(DeviceIntPtr, int);
+
+/* Internal Functions */
+static int
+_tuio_lo_cur2d_handle(const char *path,
+                   const char *types,
+                   lo_arg **argv,
+                   int argc,
+                   void *data,
+                   void *user_data);
+
+static void
+lo_error(int num,
+         const char *msg,
+         const char *path);
 
 
 static XF86ModuleVersionInfo TuioVersionRec =
@@ -103,6 +117,7 @@ TuioPlug(pointer	module,
          int		*errmaj,
          int		*errmin)
 {
+    xf86AddInputDriver(&TUIO, module, 0);
     return module;
 }
 
@@ -141,7 +156,7 @@ TuioPreInit(InputDriverPtr drv,
 
     pInfo->name = xstrdup(dev->identifier);
     pInfo->flags = 0;
-    pInfo->type_name = XI_TOUCHSCREEN; /* Correct type? */
+    pInfo->type_name = XI_TOUCHSCREEN; /* FIXME: Correct type? */
     pInfo->conf_idev = dev;
     pInfo->read_input = TuioReadInput; /* Set callback */
     pInfo->switch_mode = NULL;
@@ -169,7 +184,7 @@ TuioUnInit(InputDriverPtr drv,
 }
 
 /**
- * Handles new data on the socket
+ * Handle new data on the socket
  */
 static void
 TuioReadInput(InputInfoPtr pInfo)
@@ -185,21 +200,38 @@ TuioReadInput(InputInfoPtr pInfo)
 }
 
 /**
- * Handles device state changes
+ * Handle device state changes
  */
 static int
 TuioControl(DeviceIntPtr device,
             int what)
 {
+    InputInfoPtr pInfo = device->public.devicePrivate;
+    TuioDevicePtr pTuio = pInfo->private;
+
     switch (what)
     {
         case DEVICE_INIT:
+            xf86Msg(X_INFO, "%s: Init.\n", pInfo->name);
             break;
 
         case DEVICE_ON: /* Open device socket and start listening! */
             xf86Msg(X_INFO, "%s: On.\n", pInfo->name);
-            if (device->public.on)
+            if (device->public.on) /* already on! */
                 break;
+
+            pTuio->server = lo_server_new("3333", lo_error); 
+            if (pTuio->server == NULL) {
+                xf86Msg(X_ERROR, "%s: Error creating new lo_server.\n", 
+                        pInfo->name);
+                return BadAlloc;
+            }
+
+            /* Register to receive all /tuio/2Dcur messages */
+            lo_server_add_method(pTuio->server, "/tuio/2Dcur", NULL, 
+                                 _tuio_lo_cur2d_handle, NULL);
+
+            pInfo->fd = lo_server_get_socket_fd(pTuio->server);
 
             xf86FlushInput(pInfo->fd);
             xf86AddEnabledDevice(pInfo);
@@ -211,22 +243,30 @@ TuioControl(DeviceIntPtr device,
             if (!device->public.on)
                 break;
 
+            lo_server_free(pTuio->server);
+
             xf86RemoveEnabledDevice(pInfo);
             pInfo->fd = -1;
             device->public.on = FALSE;
             break;
 
         case DEVICE_CLOSE:
+            xf86Msg(X_INFO, "%s: Close.\n", pInfo->name);
+
+            lo_server_free(pTuio->server);
+
+            xf86RemoveDevice(pInfo);
+            pInfo->fd = -1;
+            device->public.on = FALSE;
             break;
 
     }
-    return 1;
+    return Success;
 }
 
 static int
 _tuio_start_lo_server()
 {
-    lo_server s = lo_server_new("3333", error);
 }
 
 static void
@@ -234,7 +274,7 @@ _tuio_setup_lo_server(lo_server s)
 {
     /* /tuio/2Dcur set s x y X Y m */
     /* /tuio/2Dcur fseq [int32] */
-    lo_server_add_method(s, "/tuio/2Dcur", NULL, _tuio_lo_cur2d_handle);
+    lo_server_add_method(s, "/tuio/2Dcur", NULL, _tuio_lo_cur2d_handle, NULL);
 }
 
 /**
@@ -248,7 +288,17 @@ _tuio_lo_cur2d_handle(const char *path,
                    void *data,
                    void *user_data)
 {
-    
+    if (argc < 1) {
+        //xf86Msg(X_ERROR, "%s: On.\n", pInfo->name);
+    }
+
+    if (strcmp(argv[0], "set")) {
+
+    } else if (strcmp(argv[0], "alive")) {
+
+    } else if (strcmp(argv[0], "fseq")) {
+
+    }
 }
 
 /**

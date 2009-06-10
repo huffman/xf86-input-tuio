@@ -32,6 +32,7 @@
 #include <xf86Xinput.h>
 
 typedef struct _TuioDevice {
+    lo_server server;
 } TuioDeviceRec, *TuioDevicePtr;
 
 #endif
