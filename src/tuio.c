@@ -208,7 +208,7 @@ TuioControl(DeviceIntPtr device,
 
         case DEVICE_OFF:
             xf86Msg(X_INFO, "%s: Off.\n", pInfo->name);
-            if (device->public.on)
+            if (!device->public.on)
                 break;
 
             xf86RemoveEnabledDevice(pInfo);
