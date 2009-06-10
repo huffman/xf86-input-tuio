@@ -112,12 +112,16 @@ TuioUnplug(pointer	p)
 }
 
 /**
+ * Pre-initialization of new device
+ *
  * TODO:
  *  - Parse configuration options
  *  - Setup internal data
  */
 static InputInfoPtr
-TuioPreInit(InputDriverPtr drv, IDevPtr dev, int flags)
+TuioPreInit(InputDriverPtr drv,
+            IDevPtr dev,
+            int flags)
 {
     InputInfoPtr  pInfo;
     TuioDevicePtr pTuio;
@@ -137,12 +141,13 @@ TuioPreInit(InputDriverPtr drv, IDevPtr dev, int flags)
 
     pInfo->name = xstrdup(dev->identifier);
     pInfo->flags = 0;
-    pInfo->type_name = XI_TOUCHSCREEN;
+    pInfo->type_name = XI_TOUCHSCREEN; /* Correct type? */
     pInfo->conf_idev = dev;
-    pInfo->read_input = TuioReadInput;
+    pInfo->read_input = TuioReadInput; /* Set callback */
     pInfo->switch_mode = NULL;
-    pInfo->device_control = TuioControl;
+    pInfo->device_control = TuioControl; /* Set callback */
     
+    /* Process common device options */
     xf86CollectInputOptions(pInfo, NULL, NULL);
     xf86ProcessCommonOptions(pInfo, pInfo->options);
 
@@ -153,7 +158,9 @@ TuioPreInit(InputDriverPtr drv, IDevPtr dev, int flags)
 }
 
 static void
-TuioUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
+TuioUnInit(InputDriverPtr drv,
+           InputInfoPtr pInfo,
+           int flags)
 {
     TuioDevicePtr pTuio = pInfo->private;
 
@@ -161,14 +168,96 @@ TuioUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
     xf86DeleteInput(pInfo, 0);
 }
 
+/**
+ * Handles new data on the socket
+ */
 static void
 TuioReadInput(InputInfoPtr pInfo)
 {
+    char data;
+
+    while(xf86WaitForInput(pInfo->fd, 0) > 0)
+    {
+        /* Read Input */
+        
+        /* xf8PostMotionEvent() */
+    }
+}
+
+/**
+ * Handles device state changes
+ */
+static int
+TuioControl(DeviceIntPtr device,
+            int what)
+{
+    switch (what)
+    {
+        case DEVICE_INIT:
+            break;
+
+        case DEVICE_ON: /* Open device socket and start listening! */
+            xf86Msg(X_INFO, "%s: On.\n", pInfo->name);
+            if (device->public.on)
+                break;
+
+            xf86FlushInput(pInfo->fd);
+            xf86AddEnabledDevice(pInfo);
+            device->public.on = TRUE;
+            break;
+
+        case DEVICE_OFF:
+            xf86Msg(X_INFO, "%s: Off.\n", pInfo->name);
+            if (device->public.on)
+                break;
+
+            xf86RemoveEnabledDevice(pInfo);
+            pInfo->fd = -1;
+            device->public.on = FALSE;
+            break;
+
+        case DEVICE_CLOSE:
+            break;
+
+    }
+    return 1;
 }
 
 static int
-TuioControl(DeviceIntPtr device, int what)
+_tuio_start_lo_server()
 {
-    return 1;
+    lo_server s = lo_server_new("3333", error);
+}
+
+static void
+_tuio_setup_lo_server(lo_server s)
+{
+    /* /tuio/2Dcur set s x y X Y m */
+    /* /tuio/2Dcur fseq [int32] */
+    lo_server_add_method(s, "/tuio/2Dcur", NULL, _tuio_lo_cur2d_handle);
+}
+
+/**
+ * Handles OSC messages in the /tuio/2Dcur address space
+ */
+static int
+_tuio_lo_cur2d_handle(const char *path,
+                   const char *types,
+                   lo_arg **argv,
+                   int argc,
+                   void *data,
+                   void *user_data)
+{
+    
+}
+
+/**
+ * liblo error handler
+ */
+static void
+lo_error(int num,
+         const char *msg,
+         const char *path)
+{
 }
 
