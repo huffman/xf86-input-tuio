@@ -23,20 +23,12 @@
  *	Ryan Huffman (ryanhuffman@gmail.com)
  */
 
-#include <sys/stat.h>
 #include <unistd.h>
-#include <errno.h>
-#include <fcntl.h>
 
-#include <xorg/xf86.h>
-#include <xorg-server.h>
 #include <xf86Xinput.h>
-#include <exevents.h>
-#include <xorgVersion.h>
 #include <X11/extensions/XIproto.h>
 #include <X11/extensions/XInput2.h>
 #include <xf86_OSlib.h>
-#include <lo/lo.h>
 
 #include "tuio.h"
 
@@ -189,9 +181,14 @@ TuioUnInit(InputDriverPtr drv,
 static void
 TuioReadInput(InputInfoPtr pInfo)
 {
+    TuioDevicePtr pTuio = pInfo->private;
     char data;
 
-    while(xf86WaitForInput(pInfo->fd, 0) > 0)
+    xf86Msg(X_INFO, "%s: Reading input\n", pInfo->name);
+
+    lo_server_recv_noblock(pTuio->server, 0);
+
+    //while(xf86WaitForInput(pInfo->fd, 0) > 0)
     {
         /* Read Input */
         
@@ -212,7 +209,7 @@ TuioControl(DeviceIntPtr device,
     switch (what)
     {
         case DEVICE_INIT:
-            xf86Msg(X_INFO, "%s: Init.\n", pInfo->name);
+            xf86Msg(X_INFO, "%s: Init\n", pInfo->name);
             break;
 
         case DEVICE_ON: /* Open device socket and start listening! */
@@ -220,26 +217,27 @@ TuioControl(DeviceIntPtr device,
             if (device->public.on) /* already on! */
                 break;
 
-            pTuio->server = lo_server_new("3333", lo_error); 
+            pTuio->server = lo_server_new_with_proto("3333", LO_UDP, lo_error);
             if (pTuio->server == NULL) {
-                xf86Msg(X_ERROR, "%s: Error creating new lo_server.\n", 
+                xf86Msg(X_ERROR, "%s: Error allocating new lo_server\n", 
                         pInfo->name);
                 return BadAlloc;
             }
 
             /* Register to receive all /tuio/2Dcur messages */
             lo_server_add_method(pTuio->server, "/tuio/2Dcur", NULL, 
-                                 _tuio_lo_cur2d_handle, NULL);
+                                 _tuio_lo_cur2d_handle, pInfo);
 
             pInfo->fd = lo_server_get_socket_fd(pTuio->server);
+            xf86Msg(X_INFO, "%s: Socket = %n\n", pInfo->name, pInfo->fd);
 
-            xf86FlushInput(pInfo->fd);
+            //xf86FlushInput(pInfo->fd);
             xf86AddEnabledDevice(pInfo);
             device->public.on = TRUE;
             break;
 
         case DEVICE_OFF:
-            xf86Msg(X_INFO, "%s: Off.\n", pInfo->name);
+            xf86Msg(X_INFO, "%s: Off\n", pInfo->name);
             if (!device->public.on)
                 break;
 
@@ -251,11 +249,9 @@ TuioControl(DeviceIntPtr device,
             break;
 
         case DEVICE_CLOSE:
-            xf86Msg(X_INFO, "%s: Close.\n", pInfo->name);
+            xf86Msg(X_INFO, "%s: Close\n", pInfo->name);
 
             lo_server_free(pTuio->server);
-
-            xf86RemoveDevice(pInfo);
             pInfo->fd = -1;
             device->public.on = FALSE;
             break;
@@ -265,16 +261,15 @@ TuioControl(DeviceIntPtr device,
 }
 
 static int
-_tuio_start_lo_server()
-{
-}
+_tuio_create_master() {
+    //XICreateMasterInfo ci;
+    //unsigned int blobid;
+    //char cur_name[21]; /* Max len: 20 char + \0 */
 
-static void
-_tuio_setup_lo_server(lo_server s)
-{
-    /* /tuio/2Dcur set s x y X Y m */
-    /* /tuio/2Dcur fseq [int32] */
-    lo_server_add_method(s, "/tuio/2Dcur", NULL, _tuio_lo_cur2d_handle, NULL);
+    //sprintf(cur_name, "tuio_blob_%u", blobid);
+
+    //c.type = XICreateMaster;
+    //c.name =  cur_name;
 }
 
 /**
@@ -282,23 +277,29 @@ _tuio_setup_lo_server(lo_server s)
  */
 static int
 _tuio_lo_cur2d_handle(const char *path,
-                   const char *types,
-                   lo_arg **argv,
-                   int argc,
-                   void *data,
-                   void *user_data)
+                      const char *types,
+                      lo_arg **argv,
+                      int argc,
+                      void *data,
+                      void *user_data)
 {
+    InputInfoPtr pInfo = user_data;
+    TuioDevicePtr pTuio = pInfo->private;
+
     if (argc < 1) {
-        //xf86Msg(X_ERROR, "%s: On.\n", pInfo->name);
+        xf86Msg(X_ERROR, "%s: \n", pInfo->name);
+        return 1;
     }
 
-    if (strcmp(argv[0], "set")) {
+    /* Parse message type */
+    if (strcmp(&argv[0]->s, "set")) {
+         
+    } else if (strcmp(&argv[0]->s, "alive")) {
 
-    } else if (strcmp(argv[0], "alive")) {
-
-    } else if (strcmp(argv[0], "fseq")) {
+    } else if (strcmp(&argv[0]->s, "fseq")) {
 
     }
+    return 0;
 }
 
 /**
@@ -309,5 +310,6 @@ lo_error(int num,
          const char *msg,
          const char *path)
 {
+    xf86Msg(X_ERROR, "liblo: %s\n", msg);
 }
 

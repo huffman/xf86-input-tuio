@@ -26,10 +26,9 @@
 #ifndef TUIO_H 
 #define TUIO_H 
 
-#include <linux/input.h>
-#include <linux/types.h>
 #include <X11/extensions/XI.h>
 #include <xf86Xinput.h>
+#include <lo/lo.h>
 
 typedef struct _TuioDevice {
     lo_server server;
