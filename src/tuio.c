@@ -65,6 +65,15 @@ _tuio_lo_cur2d_handle(const char *path,
                    void *data,
                    void *user_data);
 
+ObjectPtr
+_object_get(ObjectList list, int id);
+
+ObjectPtr 
+_object_insert(ObjectList list);
+
+void
+_object_remove(ObjectList list, ObjectPtr obj);
+
 static void
 lo_error(int num,
          const char *msg,
@@ -285,6 +294,8 @@ _tuio_lo_cur2d_handle(const char *path,
 {
     InputInfoPtr pInfo = user_data;
     TuioDevicePtr pTuio = pInfo->private;
+    ObjectList list = pTuio->list;;
+    ObjectPtr obj, objtemp;
 
     if (argc < 1) {
         xf86Msg(X_ERROR, "%s: \n", pInfo->name);
@@ -293,8 +304,33 @@ _tuio_lo_cur2d_handle(const char *path,
 
     /* Parse message type */
     if (strcmp(&argv[0]->s, "set")) {
+        obj = _object_get(list, argv[1]->i);
+        if(obj == NULL) {
+            obj = _object_insert(list);
+            obj->id = argv[1]->i;
+        }
+        obj->x = argv[2]->f;
+        obj->y = argv[3]->f;
          
     } else if (strcmp(&argv[0]->s, "alive")) {
+        obj = *list;
+        while (obj != NULL) {
+            obj->alive = 0;
+            for (i=1; i<argc; i++) {
+                if (argv[i]->i == obj->id) {
+                    obj->alive = 1;
+                    break;
+                }
+            }
+            if (!obj->alive) {
+                objtemp = obj->next;
+                _object_remove(list, obj);
+                obj = objtemp;
+            } else {
+                obj = obj->next;
+            }
+            
+        }
 
     } else if (strcmp(&argv[0]->s, "fseq")) {
 
@@ -313,3 +349,45 @@ lo_error(int num,
     xf86Msg(X_ERROR, "liblo: %s\n", msg);
 }
 
+ObjectPtr
+_object_get(ObjectList list, int id) {
+    ObjectPtr obj = *list;
+
+    while (obj != NULL && obj->id != id) {
+        obj = obj->next;
+    }
+
+    return obj;
+}
+
+ObjectPtr 
+_object_insert(ObjectList list) {
+    ObjectPtr obj = calloc(1, sizeof(ObjectRec));
+    obj->previous = NULL;
+    obj->next = *list;
+    if (*list != NULL)
+        (*list)->previous = obj;
+    *list = obj;
+    return obj;
+}
+
+void
+_object_remove(ObjectList list, ObjectPtr obj) {
+    if (obj->next != NULL)
+        obj->next->previous = obj->previous;
+
+    if (obj->previous != NULL)
+        obj->previous->next = obj->next;
+    else
+        *list = obj->next;
+    free(obj);
+}
+
+void
+_object_print(ObjectList list) {
+    ObjectPtr obj = *list;
+    while (obj != NULL) {
+        printf("id = %d, x = %f, y = %f\n", obj->id, obj->x, obj->y);
+        obj = obj->next;
+    }
+}
