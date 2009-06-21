@@ -30,17 +30,17 @@
 #include <xf86Xinput.h>
 #include <lo/lo.h>
 
-typedef struct _TuioDevice {
-    lo_server server;
-    ObjectList list;
-} TuioDeviceRec, *TuioDevicePtr;
-
 typedef struct _Object {
     int id;
     float x, y;
     int alive;
     struct _Object *previous, *next;
 } ObjectRec, *ObjectPtr, **ObjectList;
+
+typedef struct _TuioDevice {
+    lo_server server;
+    ObjectList list;
+} TuioDeviceRec, *TuioDevicePtr;
 
 #endif
 

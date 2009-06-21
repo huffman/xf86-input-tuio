@@ -65,14 +65,20 @@ _tuio_lo_cur2d_handle(const char *path,
                    void *data,
                    void *user_data);
 
-ObjectPtr
+static ObjectPtr
 _object_get(ObjectList list, int id);
 
-ObjectPtr 
+static ObjectPtr 
 _object_insert(ObjectList list);
 
-void
+static void
 _object_remove(ObjectList list, ObjectPtr obj);
+
+static int
+_tuio_init_buttons(DeviceIntPtr device);
+
+static int
+_tuio_init_axes(DeviceIntPtr device);
 
 static void
 lo_error(int num,
@@ -193,15 +199,9 @@ TuioReadInput(InputInfoPtr pInfo)
     TuioDevicePtr pTuio = pInfo->private;
     char data;
 
-    xf86Msg(X_INFO, "%s: Reading input\n", pInfo->name);
-
-    lo_server_recv_noblock(pTuio->server, 0);
-
-    //while(xf86WaitForInput(pInfo->fd, 0) > 0)
+    while(xf86WaitForInput(pInfo->fd, 0) > 0)
     {
-        /* Read Input */
-        
-        /* xf8PostMotionEvent() */
+        lo_server_recv_noblock(pTuio->server, 0);
     }
 }
 
@@ -219,6 +219,8 @@ TuioControl(DeviceIntPtr device,
     {
         case DEVICE_INIT:
             xf86Msg(X_INFO, "%s: Init\n", pInfo->name);
+            _tuio_init_buttons(device);
+            _tuio_init_axes(device);
             break;
 
         case DEVICE_ON: /* Open device socket and start listening! */
@@ -232,13 +234,15 @@ TuioControl(DeviceIntPtr device,
                         pInfo->name);
                 return BadAlloc;
             }
+            pTuio->list = xcalloc(1, sizeof(ObjectPtr));
+            *pTuio->list = NULL;
 
             /* Register to receive all /tuio/2Dcur messages */
             lo_server_add_method(pTuio->server, "/tuio/2Dcur", NULL, 
                                  _tuio_lo_cur2d_handle, pInfo);
 
             pInfo->fd = lo_server_get_socket_fd(pTuio->server);
-            xf86Msg(X_INFO, "%s: Socket = %n\n", pInfo->name, pInfo->fd);
+            xf86Msg(X_INFO, "%s: Socket = %i\n", pInfo->name, pInfo->fd);
 
             //xf86FlushInput(pInfo->fd);
             xf86AddEnabledDevice(pInfo);
@@ -250,9 +254,10 @@ TuioControl(DeviceIntPtr device,
             if (!device->public.on)
                 break;
 
+            xf86RemoveEnabledDevice(pInfo);
+
             lo_server_free(pTuio->server);
 
-            xf86RemoveEnabledDevice(pInfo);
             pInfo->fd = -1;
             device->public.on = FALSE;
             break;
@@ -294,8 +299,10 @@ _tuio_lo_cur2d_handle(const char *path,
 {
     InputInfoPtr pInfo = user_data;
     TuioDevicePtr pTuio = pInfo->private;
-    ObjectList list = pTuio->list;;
+    ObjectList list = pTuio->list;
     ObjectPtr obj, objtemp;
+    int valuators[2];
+    int i;
 
     if (argc < 1) {
         xf86Msg(X_ERROR, "%s: \n", pInfo->name);
@@ -303,7 +310,7 @@ _tuio_lo_cur2d_handle(const char *path,
     }
 
     /* Parse message type */
-    if (strcmp(&argv[0]->s, "set")) {
+    if (!strcmp(argv[0], "set")) {
         obj = _object_get(list, argv[1]->i);
         if(obj == NULL) {
             obj = _object_insert(list);
@@ -311,8 +318,15 @@ _tuio_lo_cur2d_handle(const char *path,
         }
         obj->x = argv[2]->f;
         obj->y = argv[3]->f;
+        valuators[0] = obj->x * 1400;
+        valuators[1] = obj->y * 1050;
+        xf86PostMotionEventP(pInfo->dev,
+                            TRUE, /* is_absolute */
+                            0, /* first_valuator */
+                            2, /* num_valuators */
+                            valuators);
          
-    } else if (strcmp(&argv[0]->s, "alive")) {
+    } else if (!strcmp(argv[0], "alive")) {
         obj = *list;
         while (obj != NULL) {
             obj->alive = 0;
@@ -332,7 +346,7 @@ _tuio_lo_cur2d_handle(const char *path,
             
         }
 
-    } else if (strcmp(&argv[0]->s, "fseq")) {
+    } else if (!strcmp(argv[0], "fseq")) {
 
     }
     return 0;
@@ -349,7 +363,7 @@ lo_error(int num,
     xf86Msg(X_ERROR, "liblo: %s\n", msg);
 }
 
-ObjectPtr
+static ObjectPtr
 _object_get(ObjectList list, int id) {
     ObjectPtr obj = *list;
 
@@ -360,9 +374,9 @@ _object_get(ObjectList list, int id) {
     return obj;
 }
 
-ObjectPtr 
+static ObjectPtr 
 _object_insert(ObjectList list) {
-    ObjectPtr obj = calloc(1, sizeof(ObjectRec));
+    ObjectPtr obj = xcalloc(1, sizeof(ObjectRec));
     obj->previous = NULL;
     obj->next = *list;
     if (*list != NULL)
@@ -371,7 +385,7 @@ _object_insert(ObjectList list) {
     return obj;
 }
 
-void
+static void
 _object_remove(ObjectList list, ObjectPtr obj) {
     if (obj->next != NULL)
         obj->next->previous = obj->previous;
@@ -383,11 +397,60 @@ _object_remove(ObjectList list, ObjectPtr obj) {
     free(obj);
 }
 
-void
-_object_print(ObjectList list) {
-    ObjectPtr obj = *list;
-    while (obj != NULL) {
-        printf("id = %d, x = %f, y = %f\n", obj->id, obj->x, obj->y);
-        obj = obj->next;
+/**
+ * Init the button map for the random device.
+ * @return Success or X error code on failure.
+ */
+static int
+_tuio_init_buttons(DeviceIntPtr device)
+{
+    InputInfoPtr        pInfo = device->public.devicePrivate;
+    CARD8               *map;
+    int                 i;
+    const int           num_buttons = 2;
+    int                 ret = Success;
+
+    map = xcalloc(num_buttons, sizeof(CARD8));
+
+    for (i = 0; i < num_buttons; i++)
+        map[i] = i;
+
+    if (!InitButtonClassDeviceStruct(device, num_buttons, map)) {
+        xf86Msg(X_ERROR, "%s: Failed to register buttons.\n", pInfo->name);
+        ret = BadAlloc;
     }
+
+    xfree(map);
+    return ret;
+}
+
+
+/**
+ * Init the valuators for the random device.
+ * Only absolute mode is supported.
+ * @return Success or X error code on failure.
+ */
+static int
+_tuio_init_axes(DeviceIntPtr device)
+{
+    InputInfoPtr        pInfo = device->public.devicePrivate;
+    int                 i;
+    const int           num_axes = 2;
+
+    if (!InitValuatorClassDeviceStruct(device,
+                                       num_axes,
+                                       GetMotionHistorySize(),
+                                       0))
+        return BadAlloc;
+
+    pInfo->dev->valuator->mode = Absolute;
+    if (!InitAbsoluteClassDeviceStruct(device))
+        return BadAlloc;
+
+    for (i = 0; i < num_axes; i++)
+    {
+        xf86InitValuatorAxisStruct(device, i, -1, -1, 1, 1, 1);
+        xf86InitValuatorDefaults(device, i);
+    }
+    return Success;
 }
