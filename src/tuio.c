@@ -406,16 +406,22 @@ _tuio_init_buttons(DeviceIntPtr device)
 {
     InputInfoPtr        pInfo = device->public.devicePrivate;
     CARD8               *map;
+    Atom *labels;
     int                 i;
     const int           num_buttons = 2;
     int                 ret = Success;
 
     map = xcalloc(num_buttons, sizeof(CARD8));
+    labels = xalloc(num_buttons * sizeof(Atom));
 
     for (i = 0; i < num_buttons; i++)
         map[i] = i;
 
-    if (!InitButtonClassDeviceStruct(device, num_buttons, map)) {
+    if (!InitButtonClassDeviceStruct(device, num_buttons,
+#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
+                                     labels,
+#endif
+                                     map)) {
         xf86Msg(X_ERROR, "%s: Failed to register buttons.\n", pInfo->name);
         ret = BadAlloc;
     }
@@ -436,6 +442,7 @@ _tuio_init_axes(DeviceIntPtr device)
     InputInfoPtr        pInfo = device->public.devicePrivate;
     int                 i;
     const int           num_axes = 2;
+    Atom *atoms;
 
     atoms = xalloc(2 * sizeof(Atom));
 
@@ -457,7 +464,11 @@ _tuio_init_axes(DeviceIntPtr device)
 
     for (i = 0; i < num_axes; i++)
     {
-        xf86InitValuatorAxisStruct(device, i, -1, -1, 1, 1, 1);
+        xf86InitValuatorAxisStruct(device, i,
+#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
+                                   atoms[i],
+#endif
+                                   -1, -1, 1, 1, 1);
         xf86InitValuatorDefaults(device, i);
     }
     return Success;
