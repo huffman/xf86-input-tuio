@@ -437,8 +437,16 @@ _tuio_init_axes(DeviceIntPtr device)
     int                 i;
     const int           num_axes = 2;
 
+    atoms = xalloc(2 * sizeof(Atom));
+
     if (!InitValuatorClassDeviceStruct(device,
                                        num_axes,
+#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
+                                       atoms,
+#endif
+#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) < 3
+                                       GetMotionHistory,
+#endif
                                        GetMotionHistorySize(),
                                        0))
         return BadAlloc;
