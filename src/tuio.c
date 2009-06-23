@@ -58,6 +58,12 @@ TuioControl(DeviceIntPtr, int);
 
 /* Internal Functions */
 static int
+_tuio_init_buttons(DeviceIntPtr device);
+
+static int
+_tuio_init_axes(DeviceIntPtr device);
+
+static int
 _tuio_lo_cur2d_handle(const char *path,
                    const char *types,
                    lo_arg **argv,
@@ -65,6 +71,12 @@ _tuio_lo_cur2d_handle(const char *path,
                    void *data,
                    void *user_data);
 
+static void
+lo_error(int num,
+         const char *msg,
+         const char *path);
+
+/* Object list manipulation functions */
 static ObjectPtr
 _object_get(ObjectList list, int id);
 
@@ -74,18 +86,7 @@ _object_insert(ObjectList list);
 static void
 _object_remove(ObjectList list, ObjectPtr obj);
 
-static int
-_tuio_init_buttons(DeviceIntPtr device);
-
-static int
-_tuio_init_axes(DeviceIntPtr device);
-
-static void
-lo_error(int num,
-         const char *msg,
-         const char *path);
-
-
+/* Driver information */
 static XF86ModuleVersionInfo TuioVersionRec =
 {
     "tuio",
@@ -128,6 +129,7 @@ TuioPlug(pointer	module,
     return module;
 }
 
+/* Remove this? */
 static void
 TuioUnplug(pointer	p)
 {
@@ -138,7 +140,6 @@ TuioUnplug(pointer	p)
  *
  * TODO:
  *  - Parse configuration options
- *  - Setup internal data
  */
 static InputInfoPtr
 TuioPreInit(InputDriverPtr drv,
@@ -147,11 +148,11 @@ TuioPreInit(InputDriverPtr drv,
 {
     InputInfoPtr  pInfo;
     TuioDevicePtr pTuio;
-    const char *device;
 
     if (!(pInfo = xf86AllocateInput(drv, 0)))
         return NULL;
 
+    /* The TuioDevicePtr will hold our blobs */
     pTuio = xcalloc(1, sizeof(TuioDeviceRec));
     if (!pTuio) {
             pInfo->private = NULL;
@@ -161,13 +162,14 @@ TuioPreInit(InputDriverPtr drv,
 
     pInfo->private = pTuio;
 
+    /* Set up InputInfoPtr */
     pInfo->name = xstrdup(dev->identifier);
     pInfo->flags = 0;
     pInfo->type_name = XI_TOUCHSCREEN; /* FIXME: Correct type? */
     pInfo->conf_idev = dev;
     pInfo->read_input = TuioReadInput; /* Set callback */
-    pInfo->switch_mode = NULL;
     pInfo->device_control = TuioControl; /* Set callback */
+    pInfo->switch_mode = NULL;
     
     /* Process common device options */
     xf86CollectInputOptions(pInfo, NULL, NULL);
@@ -179,6 +181,9 @@ TuioPreInit(InputDriverPtr drv,
     return pInfo;
 }
 
+/**
+ * Clean up
+ */
 static void
 TuioUnInit(InputDriverPtr drv,
            InputInfoPtr pInfo,
@@ -197,11 +202,29 @@ static void
 TuioReadInput(InputInfoPtr pInfo)
 {
     TuioDevicePtr pTuio = pInfo->private;
-    char data;
+    ObjectPtr obj = *pTuio->list;
 
     while(xf86WaitForInput(pInfo->fd, 0) > 0)
     {
-        lo_server_recv_noblock(pTuio->server, 0);
+        /* liblo will receive a message and call the applicable
+         * handlers (i.e. _tuio_lo_cur2d_hande())
+         * If nothing is found (this SHOULDN'T happen, but if it did,
+         * all the objects would be deleted), just return */
+        if(!lo_server_recv_noblock(pTuio->server, 0))
+            return;
+
+        /* During the processing of the previous message/bundle,
+         * any "active" messages will be handled by flagging
+         * the listed object ids.  Now that processing is done,
+         * remove any dead object ids. */
+        if (!obj->alive) {
+            objtemp = obj->next;
+            _object_remove(list, obj);
+            obj = objtemp;
+        } else {
+            obj->alive = 0; /* Reset for next message */
+            obj = obj->next;
+        }
     }
 }
 
@@ -228,6 +251,7 @@ TuioControl(DeviceIntPtr device,
             if (device->public.on) /* already on! */
                 break;
 
+            /* Setup server */
             pTuio->server = lo_server_new_with_proto("3333", LO_UDP, lo_error);
             if (pTuio->server == NULL) {
                 xf86Msg(X_ERROR, "%s: Error allocating new lo_server\n", 
@@ -235,7 +259,6 @@ TuioControl(DeviceIntPtr device,
                 return BadAlloc;
             }
             pTuio->list = xcalloc(1, sizeof(ObjectPtr));
-            *pTuio->list = NULL;
 
             /* Register to receive all /tuio/2Dcur messages */
             lo_server_add_method(pTuio->server, "/tuio/2Dcur", NULL, 
@@ -244,7 +267,6 @@ TuioControl(DeviceIntPtr device,
             pInfo->fd = lo_server_get_socket_fd(pTuio->server);
             xf86Msg(X_INFO, "%s: Socket = %i\n", pInfo->name, pInfo->fd);
 
-            //xf86FlushInput(pInfo->fd);
             xf86AddEnabledDevice(pInfo);
             device->public.on = TRUE;
             break;
@@ -257,7 +279,6 @@ TuioControl(DeviceIntPtr device,
             xf86RemoveEnabledDevice(pInfo);
 
             lo_server_free(pTuio->server);
-
             pInfo->fd = -1;
             device->public.on = FALSE;
             break;
@@ -310,23 +331,29 @@ _tuio_lo_cur2d_handle(const char *path,
     }
 
     /* Parse message type */
-    if (!strcmp(argv[0], "set")) {
+
+    /* Set message type:  */
+    if (strcmp(argv[0], "set") == 0) {
         obj = _object_get(list, argv[1]->i);
         if(obj == NULL) {
             obj = _object_insert(list);
             obj->id = argv[1]->i;
         }
+
         obj->x = argv[2]->f;
         obj->y = argv[3]->f;
-        valuators[0] = obj->x * 1400;
-        valuators[1] = obj->y * 1050;
+        
+        /* THIS NEEDS TO BE FIXED!! */
+        valuators[0] = obj->x * 0xFFFFFFFF;
+        valuators[1] = obj->y * 0xFFFFFFFF;
+
         xf86PostMotionEventP(pInfo->dev,
                             TRUE, /* is_absolute */
                             0, /* first_valuator */
                             2, /* num_valuators */
                             valuators);
          
-    } else if (!strcmp(argv[0], "alive")) {
+    } else if (strcmp(argv[0], "alive") == 0) {
         obj = *list;
         while (obj != NULL) {
             obj->alive = 0;
@@ -336,17 +363,10 @@ _tuio_lo_cur2d_handle(const char *path,
                     break;
                 }
             }
-            if (!obj->alive) {
-                objtemp = obj->next;
-                _object_remove(list, obj);
-                obj = objtemp;
-            } else {
-                obj = obj->next;
-            }
             
         }
 
-    } else if (!strcmp(argv[0], "fseq")) {
+    } else if (strcmp(argv[0], "fseq") == 0) {
 
     }
     return 0;
@@ -363,6 +383,10 @@ lo_error(int num,
     xf86Msg(X_ERROR, "liblo: %s\n", msg);
 }
 
+/**
+ * Retrieves an object from a list based on its id.  Returns NULL if
+ * not found.
+ */
 static ObjectPtr
 _object_get(ObjectList list, int id) {
     ObjectPtr obj = *list;
@@ -374,6 +398,10 @@ _object_get(ObjectList list, int id) {
     return obj;
 }
 
+/**
+ * Allocates and inserts a new object at the beginning of a list.
+ * Pointer to the new object is returned.
+ */
 static ObjectPtr 
 _object_insert(ObjectList list) {
     ObjectPtr obj = xcalloc(1, sizeof(ObjectRec));
@@ -385,6 +413,10 @@ _object_insert(ObjectList list) {
     return obj;
 }
 
+/**
+ * Removes an object from a list.  It is assumed that the object 
+ * is in the list
+ */
 static void
 _object_remove(ObjectList list, ObjectPtr obj) {
     if (obj->next != NULL)
@@ -398,21 +430,20 @@ _object_remove(ObjectList list, ObjectPtr obj) {
 }
 
 /**
- * Init the button map for the random device.
- * @return Success or X error code on failure.
+ * Init the button map device.  We only use one button.
  */
 static int
 _tuio_init_buttons(DeviceIntPtr device)
 {
     InputInfoPtr        pInfo = device->public.devicePrivate;
     CARD8               *map;
-    Atom *labels;
-    int                 i;
-    const int           num_buttons = 2;
+    Atom                *labels;
+    const int           num_buttons = 1; /* left-click */
     int                 ret = Success;
+    int                 i;
 
     map = xcalloc(num_buttons, sizeof(CARD8));
-    labels = xalloc(num_buttons * sizeof(Atom));
+    labels = xcalloc(num_buttons, sizeof(Atom));
 
     for (i = 0; i < num_buttons; i++)
         map[i] = i;
@@ -426,15 +457,13 @@ _tuio_init_buttons(DeviceIntPtr device)
         ret = BadAlloc;
     }
 
+    xfree(labels)
     xfree(map);
     return ret;
 }
 
-
 /**
- * Init the valuators for the random device.
- * Only absolute mode is supported.
- * @return Success or X error code on failure.
+ * Init valuators for device, use x/y coordinates.
  */
 static int
 _tuio_init_axes(DeviceIntPtr device)
@@ -444,7 +473,7 @@ _tuio_init_axes(DeviceIntPtr device)
     const int           num_axes = 2;
     Atom *atoms;
 
-    atoms = xalloc(2 * sizeof(Atom));
+    atoms = xcalloc(2, sizeof(Atom));
 
     if (!InitValuatorClassDeviceStruct(device,
                                        num_axes,
@@ -458,6 +487,8 @@ _tuio_init_axes(DeviceIntPtr device)
                                        0))
         return BadAlloc;
 
+    /* Use absolute mode.  Currently, TUIO coords are mapped to the
+     * full screen area */
     pInfo->dev->valuator->mode = Absolute;
     if (!InitAbsoluteClassDeviceStruct(device))
         return BadAlloc;
@@ -468,7 +499,7 @@ _tuio_init_axes(DeviceIntPtr device)
 #if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
                                    atoms[i],
 #endif
-                                   -1, -1, 1, 1, 1);
+                                   0, 0xFFFFFFFF, 1, 1, 1);
         xf86InitValuatorDefaults(device, i);
     }
     return Success;
