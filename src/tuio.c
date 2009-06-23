@@ -202,7 +202,9 @@ static void
 TuioReadInput(InputInfoPtr pInfo)
 {
     TuioDevicePtr pTuio = pInfo->private;
-    ObjectPtr obj = *pTuio->list;
+    ObjectList list = pTuio->list;
+    ObjectPtr obj = *list;
+    ObjectPtr objtemp;
 
     while(xf86WaitForInput(pInfo->fd, 0) > 0)
     {
@@ -457,7 +459,7 @@ _tuio_init_buttons(DeviceIntPtr device)
         ret = BadAlloc;
     }
 
-    xfree(labels)
+    xfree(labels);
     xfree(map);
     return ret;
 }
