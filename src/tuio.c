@@ -348,8 +348,8 @@ _tuio_lo_cur2d_handle(const char *path,
         obj->y = argv[3]->f;
         
         /* THIS NEEDS TO BE FIXED!! */
-        valuators[0] = obj->x * 0xFFFFFFFF;
-        valuators[1] = obj->y * 0xFFFFFFFF;
+        valuators[0] = obj->x * 0x7FFFFFFF;
+        valuators[1] = obj->y * 0x7FFFFFFF;
 
         xf86PostMotionEventP(pInfo->dev,
                             TRUE, /* is_absolute */
@@ -503,7 +503,7 @@ _tuio_init_axes(DeviceIntPtr device)
 #if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
                                    atoms[i],
 #endif
-                                   0, 0xFFFFFFFF, 1, 1, 1);
+                                   0, 0x7FFFFFFF, 1, 1, 1);
         xf86InitValuatorDefaults(device, i);
     }
     return Success;
