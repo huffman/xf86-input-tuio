@@ -208,7 +208,7 @@ TuioReadInput(InputInfoPtr pInfo)
 
     while(xf86WaitForInput(pInfo->fd, 0) > 0)
     {
-        /* liblo will receive a message and call the applicable
+        /* liblo will receive a message and call the appropriate
          * handlers (i.e. _tuio_lo_cur2d_hande())
          * If nothing is found (this SHOULDN'T happen, but if it did,
          * all the objects would be deleted), just return */
@@ -219,13 +219,15 @@ TuioReadInput(InputInfoPtr pInfo)
          * any "active" messages will be handled by flagging
          * the listed object ids.  Now that processing is done,
          * remove any dead object ids. */
-        if (!obj->alive) {
-            objtemp = obj->next;
-            _object_remove(list, obj);
-            obj = objtemp;
-        } else {
-            obj->alive = 0; /* Reset for next message */
-            obj = obj->next;
+        if (obj != NULL) {
+            if (!obj->alive) {
+                objtemp = obj->next;
+                _object_remove(list, obj);
+                obj = objtemp;
+            } else {
+                obj->alive = 0; /* Reset for next message */
+                obj = obj->next;
+            }
         }
     }
 }
