@@ -281,6 +281,7 @@ TuioControl(DeviceIntPtr device,
             pInfo->fd = lo_server_get_socket_fd(pTuio->server);
             xf86Msg(X_INFO, "%s: Socket = %i\n", pInfo->name, pInfo->fd);
 
+            xf86FlushInput(pInfo->fd);
             xf86AddEnabledDevice(pInfo);
             device->public.on = TRUE;
             break;
@@ -300,10 +301,7 @@ TuioControl(DeviceIntPtr device,
         case DEVICE_CLOSE:
             xf86Msg(X_INFO, "%s: Close\n", pInfo->name);
 
-            lo_server_free(pTuio->server);
             xfree(pTuio);
-            pInfo->fd = -1;
-            device->public.on = FALSE;
             break;
 
     }
