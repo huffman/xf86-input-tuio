@@ -219,25 +219,28 @@ TuioReadInput(InputInfoPtr pInfo)
 
     while(xf86WaitForInput(pInfo->fd, 0) > 0)
     {
+        /* The handler will set this flag if anything was processed */
+        pTuio->processed = 0;
+
         /* liblo will receive a message and call the appropriate
-         * handlers (i.e. _tuio_lo_cur2d_hande())
-         * If nothing is found (this SHOULDN'T happen, but if it did,
-         * all the objects would be deleted), just return */
-        if(!lo_server_recv_noblock(pTuio->server, 0))
-            return;
+         * handlers (i.e. _tuio_lo_cur2d_hande()) */
+        lo_server_recv_noblock(pTuio->server, 0);
 
         /* During the processing of the previous message/bundle,
          * any "active" messages will be handled by flagging
          * the listed object ids.  Now that processing is done,
          * remove any dead object ids. */
-        while (obj != NULL) {
-            if (!obj->alive) {
-                objtemp = obj->next;
-                _object_remove(head, obj->id);
-                obj = objtemp;
-            } else {
-                obj->alive = 0; /* Reset for next message */
-                obj = obj->next;
+        if (pTuio->processed) {
+            while (obj != NULL) {
+                if (!obj->alive) {
+                    objtemp = obj->next;
+                    _object_remove(head, obj->id);
+                    obj = objtemp;
+                    xf86PostButtonEvent(pInfo->dev, TRUE, 1, TRUE, 0, 0);
+                } else {
+                    obj->alive = 0; /* Reset for next message */
+                    obj = obj->next;
+                }
             }
         }
     }
@@ -338,19 +341,17 @@ _tuio_lo_cur2d_handle(const char *path,
     int valuators[2];
     int i;
 
-    if (argc < 1) {
-        xf86Msg(X_ERROR, "%s: \n", pInfo->name);
-        return 1;
-    }
+    /* Flag as being processed, used in TuioReadInput() */
+    pTuio->processed = 1;
 
     /* Parse message type */
-
     /* Set message type:  */
     if (strcmp(argv[0], "set") == 0) {
         obj = _object_get(head, argv[1]->i);
         if(obj == NULL) {
             obj = _object_insert(head);
             obj->id = argv[1]->i;
+            xf86PostButtonEvent(pInfo->dev, TRUE, 1, TRUE, 0, 0);
         }
 
         obj->x = argv[2]->f;

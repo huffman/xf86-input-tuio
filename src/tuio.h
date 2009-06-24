@@ -41,6 +41,7 @@ typedef struct _TuioDevice {
     lo_server server;
     ObjectPtr list_head;
     int fseq_new, fseq_old;
+    int processed;
 
 } TuioDeviceRec, *TuioDevicePtr;
 
