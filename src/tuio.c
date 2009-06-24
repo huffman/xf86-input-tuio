@@ -78,13 +78,13 @@ lo_error(int num,
 
 /* Object list manipulation functions */
 static ObjectPtr
-_object_get(ObjectList list, int id);
+_object_get(ObjectPtr head, int id);
 
 static ObjectPtr 
-_object_insert(ObjectList list);
+_object_insert(ObjectPtr head);
 
 static void
-_object_remove(ObjectList list, ObjectPtr obj);
+_object_remove(ObjectPtr head, int id);
 
 /* Driver information */
 static XF86ModuleVersionInfo TuioVersionRec =
@@ -152,13 +152,24 @@ TuioPreInit(InputDriverPtr drv,
     if (!(pInfo = xf86AllocateInput(drv, 0)))
         return NULL;
 
-    /* The TuioDevicePtr will hold our blobs */
+    /* The TuioDevicePtr will hold object and other
+     * information */
     pTuio = xcalloc(1, sizeof(TuioDeviceRec));
     if (!pTuio) {
             pInfo->private = NULL;
             xf86DeleteInput(pInfo, 0);
             return NULL;
     }
+
+    pTuio->list_head = xcalloc(1, sizeof(ObjectRec));
+    if (!pTuio->list_head) {
+            xfree(pTuio);
+            pInfo->private = NULL;
+            xf86DeleteInput(pInfo, 0);
+            return NULL;
+    }
+    pTuio->list_head->id = -1;
+    pTuio->list_head->next = NULL;
 
     pInfo->private = pTuio;
 
@@ -202,8 +213,8 @@ static void
 TuioReadInput(InputInfoPtr pInfo)
 {
     TuioDevicePtr pTuio = pInfo->private;
-    ObjectList list = pTuio->list;
-    ObjectPtr obj = *list;
+    ObjectPtr head = pTuio->list_head;
+    ObjectPtr obj = head->next;
     ObjectPtr objtemp;
 
     while(xf86WaitForInput(pInfo->fd, 0) > 0)
@@ -219,10 +230,10 @@ TuioReadInput(InputInfoPtr pInfo)
          * any "active" messages will be handled by flagging
          * the listed object ids.  Now that processing is done,
          * remove any dead object ids. */
-        if (obj != NULL) {
+        while (obj != NULL) {
             if (!obj->alive) {
                 objtemp = obj->next;
-                _object_remove(list, obj);
+                _object_remove(head, obj->id);
                 obj = objtemp;
             } else {
                 obj->alive = 0; /* Reset for next message */
@@ -262,7 +273,6 @@ TuioControl(DeviceIntPtr device,
                         pInfo->name);
                 return BadAlloc;
             }
-            pTuio->list = xcalloc(1, sizeof(ObjectPtr));
 
             /* Register to receive all /tuio/2Dcur messages */
             lo_server_add_method(pTuio->server, "/tuio/2Dcur", NULL, 
@@ -291,6 +301,7 @@ TuioControl(DeviceIntPtr device,
             xf86Msg(X_INFO, "%s: Close\n", pInfo->name);
 
             lo_server_free(pTuio->server);
+            xfree(pTuio);
             pInfo->fd = -1;
             device->public.on = FALSE;
             break;
@@ -324,7 +335,7 @@ _tuio_lo_cur2d_handle(const char *path,
 {
     InputInfoPtr pInfo = user_data;
     TuioDevicePtr pTuio = pInfo->private;
-    ObjectList list = pTuio->list;
+    ObjectPtr head = pTuio->list_head;
     ObjectPtr obj, objtemp;
     int valuators[2];
     int i;
@@ -338,16 +349,16 @@ _tuio_lo_cur2d_handle(const char *path,
 
     /* Set message type:  */
     if (strcmp(argv[0], "set") == 0) {
-        obj = _object_get(list, argv[1]->i);
+        obj = _object_get(head, argv[1]->i);
         if(obj == NULL) {
-            obj = _object_insert(list);
+            obj = _object_insert(head);
             obj->id = argv[1]->i;
         }
 
         obj->x = argv[2]->f;
         obj->y = argv[3]->f;
         
-        /* THIS NEEDS TO BE FIXED!! */
+        /* OKAY FOR NOW, MAYBE UPDATE */
         valuators[0] = obj->x * 0x7FFFFFFF;
         valuators[1] = obj->y * 0x7FFFFFFF;
 
@@ -358,19 +369,20 @@ _tuio_lo_cur2d_handle(const char *path,
                             valuators);
          
     } else if (strcmp(argv[0], "alive") == 0) {
-        obj = *list;
+        obj = head->next;
         while (obj != NULL) {
-            obj->alive = 0;
             for (i=1; i<argc; i++) {
                 if (argv[i]->i == obj->id) {
                     obj->alive = 1;
                     break;
                 }
             }
-            
+            obj = obj->next;
         }
 
     } else if (strcmp(argv[0], "fseq") == 0) {
+        pTuio->fseq_old = pTuio->fseq_new;
+        pTuio->fseq_new = argv[1]->i;
 
     }
     return 0;
@@ -392,8 +404,8 @@ lo_error(int num,
  * not found.
  */
 static ObjectPtr
-_object_get(ObjectList list, int id) {
-    ObjectPtr obj = *list;
+_object_get(ObjectPtr head, int id) {
+    ObjectPtr obj = head->next;
 
     while (obj != NULL && obj->id != id) {
         obj = obj->next;
@@ -405,15 +417,16 @@ _object_get(ObjectList list, int id) {
 /**
  * Allocates and inserts a new object at the beginning of a list.
  * Pointer to the new object is returned.
+ * Doesn't check for duplicate ids, so call _object_get() beforehand
+ * to make sure it doesn't exist already!!
+ *
+ * @return ptr to new object
  */
 static ObjectPtr 
-_object_insert(ObjectList list) {
+_object_insert(ObjectPtr head) {
     ObjectPtr obj = xcalloc(1, sizeof(ObjectRec));
-    obj->previous = NULL;
-    obj->next = *list;
-    if (*list != NULL)
-        (*list)->previous = obj;
-    *list = obj;
+    obj->next = head->next;
+    head->next = obj;
     return obj;
 }
 
@@ -422,15 +435,19 @@ _object_insert(ObjectList list) {
  * is in the list
  */
 static void
-_object_remove(ObjectList list, ObjectPtr obj) {
-    if (obj->next != NULL)
-        obj->next->previous = obj->previous;
+_object_remove(ObjectPtr head, int id) {
+    ObjectPtr obj = head;
+    ObjectPtr objtmp;
 
-    if (obj->previous != NULL)
-        obj->previous->next = obj->next;
-    else
-        *list = obj->next;
-    free(obj);
+    while (obj->next != NULL) {
+        if (obj->next->id == id) {
+            objtmp = obj->next;
+            obj->next = objtmp->next;
+            xfree(objtmp);
+            break;
+        }
+        obj = obj->next;
+    }
 }
 
 /**

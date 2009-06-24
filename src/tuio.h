@@ -34,12 +34,14 @@ typedef struct _Object {
     int id;
     float x, y;
     int alive;
-    struct _Object *previous, *next;
+    struct _Object *next;
 } ObjectRec, *ObjectPtr, **ObjectList;
 
 typedef struct _TuioDevice {
     lo_server server;
-    ObjectList list;
+    ObjectPtr list_head;
+    int fseq_new, fseq_old;
+
 } TuioDeviceRec, *TuioDevicePtr;
 
 #endif
