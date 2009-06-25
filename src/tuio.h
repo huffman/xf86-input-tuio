@@ -29,6 +29,7 @@
 #include <X11/extensions/XI.h>
 #include <xf86Xinput.h>
 #include <lo/lo.h>
+#include <hal/libhal.h>
 
 typedef struct _Object {
     int id;
@@ -40,6 +41,7 @@ typedef struct _Object {
 typedef struct _TuioDevice {
     lo_server server;
     ObjectPtr list_head;
+    DeviceIntPtr dev;
     int fseq_new, fseq_old;
     int processed;
 

@@ -76,6 +76,9 @@ lo_error(int num,
          const char *msg,
          const char *path);
 
+static int
+_object_new(ObjectPtr obj, InputInfoPtr pInfo);
+
 /* Object list manipulation functions */
 static ObjectPtr
 _object_get(ObjectPtr head, int id);
@@ -129,7 +132,7 @@ TuioPlug(pointer	module,
     return module;
 }
 
-/* Remove this? */
+/* Unnecessary? */
 static void
 TuioUnplug(pointer	p)
 {
@@ -148,9 +151,17 @@ TuioPreInit(InputDriverPtr drv,
 {
     InputInfoPtr  pInfo;
     TuioDevicePtr pTuio;
+    char *type;
 
     if (!(pInfo = xf86AllocateInput(drv, 0)))
         return NULL;
+
+    type = xf86CheckStrOption(dev->commonOptions, "Type", NULL); 
+
+    /* If type is not NULL, this is a device needed for a blob object. */
+    if (type != NULL) {
+        xf86Msg(X_INFO, "%s: blob device found\n");
+    }
 
     /* The TuioDevicePtr will hold object and other
      * information */
@@ -178,8 +189,8 @@ TuioPreInit(InputDriverPtr drv,
     pInfo->flags = 0;
     pInfo->type_name = XI_TOUCHSCREEN; /* FIXME: Correct type? */
     pInfo->conf_idev = dev;
-    pInfo->read_input = TuioReadInput; /* Set callback */
-    pInfo->device_control = TuioControl; /* Set callback */
+    pInfo->read_input = type ? NULL : TuioReadInput; /* Set callback */
+    pInfo->device_control = type ? NULL : TuioControl; /* Set callback */
     pInfo->switch_mode = NULL;
     
     /* Process common device options */
@@ -219,7 +230,7 @@ TuioReadInput(InputInfoPtr pInfo)
 
     while(xf86WaitForInput(pInfo->fd, 0) > 0)
     {
-        /* The handler will set this flag if anything was processed */
+        /* The liblo handler will set this flag if anything was processed */
         pTuio->processed = 0;
 
         /* liblo will receive a message and call the appropriate
@@ -236,7 +247,7 @@ TuioReadInput(InputInfoPtr pInfo)
                     objtemp = obj->next;
                     _object_remove(head, obj->id);
                     obj = objtemp;
-                    xf86PostButtonEvent(pInfo->dev, TRUE, 1, TRUE, 0, 0);
+                    xf86PostButtonEvent(pInfo->dev, TRUE, 1, FALSE, 0, 0);
                 } else {
                     obj->alive = 0; /* Reset for next message */
                     obj = obj->next;
@@ -264,7 +275,7 @@ TuioControl(DeviceIntPtr device,
             _tuio_init_axes(device);
             break;
 
-        case DEVICE_ON: /* Open device socket and start listening! */
+        case DEVICE_ON: /* Open socket and start listening! */
             xf86Msg(X_INFO, "%s: On.\n", pInfo->name);
             if (device->public.on) /* already on! */
                 break;
@@ -304,23 +315,27 @@ TuioControl(DeviceIntPtr device,
         case DEVICE_CLOSE:
             xf86Msg(X_INFO, "%s: Close\n", pInfo->name);
 
-            xfree(pTuio);
+            _free_tuiodev(pTuio);
             break;
 
     }
     return Success;
 }
 
-static int
-_tuio_create_master() {
-    //XICreateMasterInfo ci;
-    //unsigned int blobid;
-    //char cur_name[21]; /* Max len: 20 char + \0 */
+/**
+ * Free a TuioDeviceRec
+ */
+_free_tuiodev(TuioDevicePtr pTuio) {
+    ObjectPtr obj = pTuio->list_head;
+    ObjectPtr tmp;
 
-    //sprintf(cur_name, "tuio_blob_%u", blobid);
+    while (obj != NULL) {
+        tmp = obj->next;
+        xfree(obj);
+        obj = tmp;
+    }
 
-    //c.type = XICreateMaster;
-    //c.name =  cur_name;
+    xfree(pTuio);
 }
 
 /**
@@ -339,7 +354,15 @@ _tuio_lo_cur2d_handle(const char *path,
     ObjectPtr head = pTuio->list_head;
     ObjectPtr obj, objtemp;
     int valuators[2];
+    char *act;
     int i;
+
+    if (argc == 0) {
+        xf86Msg(X_ERROR, "%s: Error in /tuio/cur2d (argc == 0)\n", 
+                pInfo->name);
+        return 0;
+    }
+
 
     /* Flag as being processed, used in TuioReadInput() */
     pTuio->processed = 1;
@@ -347,11 +370,22 @@ _tuio_lo_cur2d_handle(const char *path,
     /* Parse message type */
     /* Set message type:  */
     if (strcmp(argv[0], "set") == 0) {
+
+        /* Simple type check */
+        if (strcmp(types, "siffffff")) {
+            xf86Msg(X_ERROR, "%s: Error in /tuio/cur2d set msg (types == %s)\n", 
+                    pInfo->name, types);
+            return 0;
+        }
+
         obj = _object_get(head, argv[1]->i);
-        if(obj == NULL) {
+
+        /* New Object... */
+        if (obj == NULL) {
             obj = _object_insert(head);
             obj->id = argv[1]->i;
             xf86PostButtonEvent(pInfo->dev, TRUE, 1, TRUE, 0, 0);
+            _object_new(obj, pInfo);
         }
 
         obj->x = argv[2]->f;
@@ -368,6 +402,7 @@ _tuio_lo_cur2d_handle(const char *path,
                             valuators);
          
     } else if (strcmp(argv[0], "alive") == 0) {
+
         obj = head->next;
         while (obj != NULL) {
             for (i=1; i<argc; i++) {
@@ -380,6 +415,12 @@ _tuio_lo_cur2d_handle(const char *path,
         }
 
     } else if (strcmp(argv[0], "fseq") == 0) {
+        /* Simple type check */
+        if (strcmp(types, "si")) {
+            xf86Msg(X_ERROR, "%s: Error in /tuio/cur2d fseq msg (types == %s)\n", 
+                    pInfo->name, types);
+            return 0;
+        }
         pTuio->fseq_old = pTuio->fseq_new;
         pTuio->fseq_new = argv[1]->i;
 
@@ -399,8 +440,96 @@ lo_error(int num,
 }
 
 /**
- * Retrieves an object from a list based on its id.  Returns NULL if
- * not found.
+ * Allocates a new object and sets up new device creation through hal
+ * A lot here was taken from the wacom hal-setup patch
+ * http://cvs.fedoraproject.org/viewvc/rpms/linuxwacom/devel/linuxwacom-0.8.2.2-hal-setup.patch?revision=1.1&view=markup
+ *
+ * @return 0 if successful, 1 if failure
+ */
+static int
+_object_new(ObjectPtr obj, InputInfoPtr pInfo) {
+    DBusError error;
+    LibHalContext *ctx;
+    char *newdev;
+
+    /* We need a new device to send motion/button events through.
+     * There isn't a great way to do this right now without native
+     * blob events, so just hack it out for now.  Woot. */
+
+    /* Get hal context and create new device */
+    dbus_error_init(&error);
+	if ((ctx = libhal_ctx_init_direct(&error)) == NULL) {
+        xf86Msg(X_ERROR, "%s: Failed to obtain hal context: %s\n",
+                pInfo->name, error.message);
+		return 1;
+	}
+
+    dbus_error_init(&error);
+    newdev = libhal_new_device(ctx, &error);
+    if (dbus_error_is_set(&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed to create input device: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    dbus_error_init(&error);
+    libhal_device_set_property_string(ctx, newdev, "input.device",
+                       "blob", &error);
+    if (dbus_error_is_set(&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    dbus_error_init(&error);
+    libhal_device_set_property_string(ctx, newdev,
+                       "input.x11_driver", "tuio",
+                       &error);
+    if (dbus_error_is_set(&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    dbus_error_init(&error);
+    libhal_device_set_property_string(ctx, newdev,
+                       "input.x11_options.Type",
+                       "Object", &error);
+    if (dbus_error_is_set(&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    dbus_error_init(&error);
+    libhal_device_set_property_string(ctx, newdev,
+                       "input.x11_options.Id",
+                       "1", &error);
+    if (dbus_error_is_set(&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    dbus_error_init(&error);
+    libhal_device_commit_to_gdl(ctx, newdev, "tuio_", &error);
+
+    if (dbus_error_is_set (&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed to add input device: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    xf86Msg(X_INFO, "%s: libhal, created new device!\n",
+         pInfo->name);
+
+    return 0;
+}
+
+/**
+ * Retrieves an object from a list based on its id.
+ *
+ * @returns NULL if not found.
  */
 static ObjectPtr
 _object_get(ObjectPtr head, int id) {
@@ -419,7 +548,7 @@ _object_get(ObjectPtr head, int id) {
  * Doesn't check for duplicate ids, so call _object_get() beforehand
  * to make sure it doesn't exist already!!
  *
- * @return ptr to new object
+ * @return ptr to newly inserted object
  */
 static ObjectPtr 
 _object_insert(ObjectPtr head) {
