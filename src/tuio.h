@@ -32,19 +32,26 @@
 #include <hal/libhal.h>
 
 typedef struct _Object {
+    InputInfoPtr pInfo;
     int id;
     float x, y;
     int alive;
     struct _Object *next;
-} ObjectRec, *ObjectPtr, **ObjectList;
+
+    struct {
+        Bool set;
+        float x, y;
+    } pending;
+} ObjectRec, *ObjectPtr;
 
 typedef struct _TuioDevice {
-    lo_server server;
-    ObjectPtr list_head;
     DeviceIntPtr dev;
+    lo_server server;
+    char *device; /* Device to read from */
+    ObjectPtr list_head;
     int fseq_new, fseq_old;
     int processed;
-    int isObject;
+    Bool isObject;
 
 } TuioDeviceRec, *TuioDevicePtr;
 
