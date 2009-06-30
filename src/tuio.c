@@ -517,7 +517,7 @@ _object_new(ObjectPtr obj, InputInfoPtr pInfo) {
      * There isn't a great way to do this right now without native
      * blob events, so just hack it out for now.  Woot. */
 
-    asprintf(&name, "Tuio Obj (%s) %i", obj->id);
+    asprintf(&name, "Tuio Obj (%s) %i", pInfo->name, obj->id);
 
     /* Open connection to dbus and create contex */
     dbus_error_init(&error);
