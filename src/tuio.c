@@ -287,7 +287,7 @@ TuioReadInput(InputInfoPtr pInfo)
                         obj = objtemp;
                         xf86PostButtonEvent(pInfo->dev, TRUE, 1, FALSE, 0, 0);
                     } else {
-                        if (obj->pending.set) {
+                        if (obj->pending.set && obj->pInfo) {
                             obj->x = obj->pending.x;
                             obj->y = obj->pending.y;
                             obj->pending.set = False;
