@@ -44,6 +44,7 @@ typedef struct _TuioDevice {
     DeviceIntPtr dev;
     int fseq_new, fseq_old;
     int processed;
+    int isObject;
 
 } TuioDeviceRec, *TuioDevicePtr;
 

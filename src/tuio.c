@@ -51,6 +51,9 @@ static void
 TuioUnInit(InputDriverPtr, InputInfoPtr, int);
 
 static void
+TuioObjReadInput(InputInfoPtr pInfo);
+
+static void
 TuioReadInput(InputInfoPtr);
 
 static int
@@ -153,15 +156,9 @@ TuioPreInit(InputDriverPtr drv,
     TuioDevicePtr pTuio;
     char *type;
 
+    xf86Msg(X_INFO, "%s: allocating input\n", dev->identifier);
     if (!(pInfo = xf86AllocateInput(drv, 0)))
         return NULL;
-
-    type = xf86CheckStrOption(dev->commonOptions, "Type", NULL); 
-
-    /* If type is not NULL, this is a device needed for a blob object. */
-    if (type != NULL) {
-        xf86Msg(X_INFO, "%s: blob device found\n");
-    }
 
     /* The TuioDevicePtr will hold object and other
      * information */
@@ -182,6 +179,16 @@ TuioPreInit(InputDriverPtr drv,
     pTuio->list_head->id = -1;
     pTuio->list_head->next = NULL;
 
+    type = xf86CheckStrOption(dev->commonOptions, "Type", NULL); 
+
+    /* If type is not NULL, this is a device needed for a blob object. */
+    if (type != NULL) {
+        xf86Msg(X_INFO, "%s: blob device found\n", dev->identifier);
+        pTuio->isObject = 1;
+    } else {
+        pTuio->isObject = 0;
+    }
+
     pInfo->private = pTuio;
 
     /* Set up InputInfoPtr */
@@ -189,8 +196,8 @@ TuioPreInit(InputDriverPtr drv,
     pInfo->flags = 0;
     pInfo->type_name = XI_TOUCHSCREEN; /* FIXME: Correct type? */
     pInfo->conf_idev = dev;
-    pInfo->read_input = type ? NULL : TuioReadInput; /* Set callback */
-    pInfo->device_control = type ? NULL : TuioControl; /* Set callback */
+    pInfo->read_input = pTuio->isObject ? TuioObjReadInput : TuioReadInput; /* Set callback */
+    pInfo->device_control = TuioControl; /* Set callback */
     pInfo->switch_mode = NULL;
     
     /* Process common device options */
@@ -215,6 +222,11 @@ TuioUnInit(InputDriverPtr drv,
 
     xfree(pTuio);
     xf86DeleteInput(pInfo, 0);
+}
+
+static void
+TuioObjReadInput(InputInfoPtr pInfo) {
+    return;
 }
 
 /**
@@ -280,6 +292,11 @@ TuioControl(DeviceIntPtr device,
             if (device->public.on) /* already on! */
                 break;
 
+            if (pTuio->isObject) {
+                pInfo->fd = 0;
+                goto finish;
+            }
+
             /* Setup server */
             pTuio->server = lo_server_new_with_proto("3333", LO_UDP, lo_error);
             if (pTuio->server == NULL) {
@@ -296,7 +313,7 @@ TuioControl(DeviceIntPtr device,
             xf86Msg(X_INFO, "%s: Socket = %i\n", pInfo->name, pInfo->fd);
 
             xf86FlushInput(pInfo->fd);
-            xf86AddEnabledDevice(pInfo);
+finish:     xf86AddEnabledDevice(pInfo);
             device->public.on = TRUE;
             break;
 
@@ -372,7 +389,7 @@ _tuio_lo_cur2d_handle(const char *path,
     if (strcmp(argv[0], "set") == 0) {
 
         /* Simple type check */
-        if (strcmp(types, "siffffff")) {
+        if (strcmp(types, "sifffff")) {
             xf86Msg(X_ERROR, "%s: Error in /tuio/cur2d set msg (types == %s)\n", 
                     pInfo->name, types);
             return 0;
@@ -449,20 +466,37 @@ lo_error(int num,
 static int
 _object_new(ObjectPtr obj, InputInfoPtr pInfo) {
     DBusError error;
+    DBusConnection *conn;
     LibHalContext *ctx;
     char *newdev;
+    char *name;
 
     /* We need a new device to send motion/button events through.
      * There isn't a great way to do this right now without native
      * blob events, so just hack it out for now.  Woot. */
 
+    asprintf(&name, "tuio_obj%i", obj->id);
+
     /* Get hal context and create new device */
     dbus_error_init(&error);
-	if ((ctx = libhal_ctx_init_direct(&error)) == NULL) {
+    if ((conn = dbus_bus_get(DBUS_BUS_SYSTEM, &error)) == NULL) {
+        xf86Msg(X_ERROR, "%s: Failed to open dbus connection: %s\n",
+                pInfo->name, error.message);
+		return 1;
+	}
+	if ((ctx = libhal_ctx_new()) == NULL) {
         xf86Msg(X_ERROR, "%s: Failed to obtain hal context: %s\n",
                 pInfo->name, error.message);
 		return 1;
 	}
+
+    dbus_error_init(&error);
+    libhal_ctx_set_dbus_connection(ctx, conn);
+    if(!libhal_ctx_init(ctx, &error)) {
+        xf86Msg(X_ERROR, "%s: Failed to initialize hal context: %s\n",
+                pInfo->name, error.message);
+		return 1;
+    }
 
     dbus_error_init(&error);
     newdev = libhal_new_device(ctx, &error);
@@ -493,6 +527,16 @@ _object_new(ObjectPtr obj, InputInfoPtr pInfo) {
 
     dbus_error_init(&error);
     libhal_device_set_property_string(ctx, newdev,
+                       "info.product", name,
+                       &error);
+    if (dbus_error_is_set(&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    dbus_error_init(&error);
+    libhal_device_set_property_string(ctx, newdev,
                        "input.x11_options.Type",
                        "Object", &error);
     if (dbus_error_is_set(&error) == TRUE) {
@@ -512,7 +556,7 @@ _object_new(ObjectPtr obj, InputInfoPtr pInfo) {
     }
 
     dbus_error_init(&error);
-    libhal_device_commit_to_gdl(ctx, newdev, "tuio_", &error);
+    libhal_device_commit_to_gdl(ctx, newdev, "/org/freedesktop/Hal/devices/tuio_subdev", &error);
 
     if (dbus_error_is_set (&error) == TRUE) {
         xf86Msg(X_ERROR, "%s: Failed to add input device: %s\n",
