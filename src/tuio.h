@@ -31,29 +31,53 @@
 #include <lo/lo.h>
 #include <hal/libhal.h>
 
+/**
+ * Tuio device information, including list of current object
+ */
+typedef struct _TuioDevice {
+    lo_server server;
+
+    int fseq_new, fseq_old;
+    int processed;
+
+    struct _Object *obj_list;
+
+    /* List of unused devices that can be allocated for use
+     * by ObjectPtr. */
+    struct _ObjectDev *unused_device_list;
+
+} TuioDeviceRec, *TuioDevicePtr;
+
+/**
+ * An "Object" can represent a tuio blob or cursor (/tuio/2Dcur or
+ * /tuio/blob
+ */
 typedef struct _Object {
-    InputInfoPtr pInfo;
     int id;
     float x, y;
     int alive;
-    struct _Object *next;
+    struct _ObjectDev *objdev;
 
+    /* Stores pending information about this object */
     struct {
+        Bool alive;
         Bool set;
         float x, y;
     } pending;
+
+    struct _Object *next;
+
 } ObjectRec, *ObjectPtr;
 
-typedef struct _TuioDevice {
-    DeviceIntPtr dev;
-    lo_server server;
-    char *device; /* Device to read from */
-    ObjectPtr list_head;
-    int fseq_new, fseq_old;
-    int processed;
-    Bool isObject;
-
-} TuioDeviceRec, *TuioDevicePtr;
+/**
+ * Object devices are special devices created at the creation of the first
+ * tuio device (aka "core device).  They are tuio devices but are only used 
+ * to route object movements through.
+ */
+typedef struct _ObjectDev {
+    InputInfoPtr pInfo;
+    struct _ObjectDev *next;
+} ObjectDevRec, *ObjectDevPtr;
 
 #endif
 
