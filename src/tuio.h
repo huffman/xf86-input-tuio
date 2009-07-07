@@ -31,6 +31,10 @@
 #include <lo/lo.h>
 #include <hal/libhal.h>
 
+#define MIN_SUBDEVICES 1
+#define MAX_SUBDEVICES 20
+#define DEFAULT_PORT 3333
+
 /**
  * Tuio device information, including list of current object
  */
@@ -39,6 +43,9 @@ typedef struct _TuioDevice {
 
     int fseq_new, fseq_old;
     int processed;
+
+    int tuio_port;
+    int num_subdev;
 
     struct _Object *obj_list;
 

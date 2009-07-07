@@ -96,6 +96,9 @@ static ObjectPtr
 _object_new(TuioDevicePtr pTuio, int id);
 
 static void
+_object_attach_subdev(TuioDevicePtr pTuio, ObjectPtr obj);
+
+static void
 _object_remove(TuioDevicePtr pTuio, ObjectPtr *head, int id);
 
 /* Driver information */
@@ -166,6 +169,7 @@ TuioPreInit(InputDriverPtr drv,
     ObjectDevPtr objdev;
     char *type;
     int id;
+    int num_subdev, tuio_port;
 
     if (!(pInfo = xf86AllocateInput(drv, 0)))
         return NULL;
@@ -196,6 +200,24 @@ TuioPreInit(InputDriverPtr drv,
         g_pTuio = pTuio;
 
         pInfo->private = pTuio;
+
+        /* Get the number of subdevices we need to create */
+        num_subdev = xf86CheckIntOption(dev->commonOptions, "SubDevices", 5); 
+        if (num_subdev > MAX_SUBDEVICES) {
+            num_subdev = MAX_SUBDEVICES;
+        } else if (num_subdev < MIN_SUBDEVICES) {
+            num_subdev = MIN_SUBDEVICES;
+        }
+        pTuio->num_subdev = num_subdev;
+
+        /* Get the TUIO port number to use */
+        tuio_port = xf86CheckIntOption(dev->commonOptions, "Port", DEFAULT_PORT);
+        if (tuio_port < 0 || tuio_port > 65535) {
+            xf86Msg(X_INFO, "%s: Invalid port number (%i), defaulting to %i\n",
+                    dev->identifier, tuio_port, DEFAULT_PORT);
+            tuio_port = DEFAULT_PORT;
+        }
+        pTuio->tuio_port = tuio_port;
     }
 
     /* Set up InputInfoPtr */
@@ -267,7 +289,8 @@ TuioReadInput(InputInfoPtr pInfo)
 
             while (obj != NULL) {
                 if (!obj->alive) {
-                    xf86PostButtonEvent(obj->objdev->pInfo->dev, TRUE, 1, FALSE, 0, 0);
+                    if (obj->objdev)
+                        xf86PostButtonEvent(obj->objdev->pInfo->dev, TRUE, 1, FALSE, 0, 0);
                     objtmp = obj->next;
                     _object_remove(pTuio, head, obj->id);
                     obj = objtmp;
@@ -279,6 +302,7 @@ TuioReadInput(InputInfoPtr pInfo)
 
                         if (obj->objdev) {
                             /* OKAY FOR NOW, MAYBE UPDATE */
+                            /* TODO: Add more valuators with additional information */
                             valuators[0] = obj->x * 0x7FFFFFFF;
                             valuators[1] = obj->y * 0x7FFFFFFF;
 
@@ -316,8 +340,9 @@ TuioControl(DeviceIntPtr device,
             _tuio_init_axes(device);
 
             /* If this is a "core" device, create object devices */
-            if (pTuio)
-                _init_devices(pInfo, 5);
+            if (pTuio) {
+                _init_devices(pInfo, pTuio->num_subdev - 1);
+            }
             break;
 
         case DEVICE_ON: /* Open socket and start listening! */
@@ -325,8 +350,15 @@ TuioControl(DeviceIntPtr device,
             if (device->public.on)
                 break;
 
+            /* If this is an object device, set /dev/null fd */
             if (!pTuio) {
-                pInfo->fd = 0;
+                SYSCALL(pInfo->fd = open("/dev/null", O_RDWR | O_NONBLOCK));
+                if (pInfo->fd == -1) {
+                    xf86Msg(X_ERROR, "%s: failed to open /dev/null\n",
+                            pInfo->name);
+                    return BadAlloc;
+                }
+
                 goto finish;
             }
 
@@ -414,7 +446,7 @@ _tuio_lo_cur2d_handle(const char *path,
     char *act;
     int i;
 
-    if (argc == 0) {
+    if (argc == 0 || *types != 's') {
         xf86Msg(X_ERROR, "%s: Error in /tuio/cur2d (argc == 0)\n", 
                 pInfo->name);
         return 0;
@@ -439,6 +471,7 @@ _tuio_lo_cur2d_handle(const char *path,
         /* If not found, create a new object */
         if (obj == NULL) {
             obj = _object_new(pTuio, argv[1]->i);
+            _object_attach_subdev(pTuio, obj);
             if (obj->objdev)
                 xf86PostButtonEvent(obj->objdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
         }
@@ -568,7 +601,7 @@ _init_devices(InputInfoPtr pInfo, int num) {
             return 1;
         }
 
-        asprintf(&name, "Tuio Obj (%s) %i", pInfo->name, i);
+        asprintf(&name, "%s subdev %i", pInfo->name, i);
 
         /* Set name */
         dbus_error_init(&error);
@@ -644,6 +677,22 @@ _object_new(TuioDevicePtr pTuio, int id) {
     return new_obj;
 }
 
+static void
+_object_attach_subdev(TuioDevicePtr pTuio, ObjectPtr obj) {
+    ObjectDevPtr objdev;
+
+    /* Device  already attached? */
+    if (obj->objdev)
+        return;
+
+    objdev = pTuio->unused_device_list;
+
+    if (objdev) 
+        pTuio->unused_device_list = objdev->next;
+
+    obj->objdev = objdev;
+}
+
 /**
  * Removes an object from a list.
  */
@@ -680,6 +729,17 @@ _object_remove(TuioDevicePtr pTuio, ObjectPtr *head, int id) {
             obj = obj->next;
         }
     }
+}
+
+static void
+_object_remove_subdev(ObjectDevPtr *unused_subdevs, ObjectPtr obj) {
+    ObjectDevPtr objdev;
+
+    if (!obj || !obj->objdev)
+        return;
+
+    objdev = *unused_subdevs;
+
 }
 
 /**
