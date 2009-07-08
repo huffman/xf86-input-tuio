@@ -85,7 +85,7 @@ static void
 _free_tuiodev(TuioDevicePtr pTuio);
 
 static void
-lo_error(int num,
+_lo_error(int num,
          const char *msg,
          const char *path);
 
@@ -94,13 +94,22 @@ static ObjectPtr
 _object_get(ObjectPtr head, int id);
 
 static ObjectPtr 
-_object_new(TuioDevicePtr pTuio, int id);
+_object_new(int id);
 
 static void
-_object_attach_subdev(TuioDevicePtr pTuio, ObjectPtr obj);
+_object_add(ObjectPtr *obj_list, ObjectPtr obj);
+
+static ObjectPtr
+_object_remove(ObjectPtr *obj_list, int id);
 
 static void
-_object_remove(TuioDevicePtr pTuio, ObjectPtr *head, int id);
+_subdev_add(SubDevicePtr *subdev_list, SubDevicePtr subdev);
+
+static SubDevicePtr
+_subdev_remove(SubDevicePtr *subdev_list);
+
+static SubDevicePtr
+_subdev_remove_sd(SubDevicePtr *subdev_list, SubDevicePtr subdev);
 
 /* Driver information */
 static XF86ModuleVersionInfo TuioVersionRec =
@@ -167,7 +176,7 @@ TuioPreInit(InputDriverPtr drv,
     InputInfoPtr  pInfo;
     TuioDevicePtr pTuio = NULL;
     ObjectPtr obj;
-    ObjectDevPtr objdev;
+    SubDevicePtr subdev;
     char *type;
     int id;
     int num_subdev, tuio_port;
@@ -183,14 +192,9 @@ TuioPreInit(InputDriverPtr drv,
         xf86Msg(X_INFO, "%s: Object device found\n", dev->identifier);
 
         /* Allocate device storage and add to device list */
-        objdev = xcalloc(1, sizeof(ObjectDevRec));
-        if (!g_pTuio->unused_device_list) {
-            g_pTuio->unused_device_list = objdev;
-        } else {
-            objdev->next = g_pTuio->unused_device_list;
-            g_pTuio->unused_device_list = objdev;
-        }
-        objdev->pInfo = pInfo;
+        subdev = xcalloc(1, sizeof(SubDeviceRec));
+        subdev->pInfo = pInfo;
+        _subdev_add(&g_pTuio->subdev_list, subdev);
 
     } else {
 
@@ -266,8 +270,9 @@ static void
 TuioReadInput(InputInfoPtr pInfo)
 {
     TuioDevicePtr pTuio = pInfo->private;
-    ObjectPtr *head = &pTuio->obj_list;
+    ObjectPtr *obj_list = &pTuio->obj_list;
     ObjectPtr obj = pTuio->obj_list;
+    SubDevicePtr *subdev_list = &pTuio->subdev_list;
     ObjectPtr objtmp;
     int valuators[2];
 
@@ -290,24 +295,29 @@ TuioReadInput(InputInfoPtr pInfo)
 
             while (obj != NULL) {
                 if (!obj->alive) {
-                    if (obj->objdev)
-                        xf86PostButtonEvent(obj->objdev->pInfo->dev, TRUE, 1, FALSE, 0, 0);
+                    if (obj->subdev) {
+                        /* Post button "up" event */
+                        xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, FALSE, 0, 0);
+                    }
                     objtmp = obj->next;
-                    _object_remove(pTuio, head, obj->id);
+                    obj = _object_remove(obj_list, obj->id);
+                    _subdev_add(subdev_list, obj->subdev);
+                    xfree(obj);
                     obj = objtmp;
+
                 } else {
-                    if (obj->pending.set && obj->objdev) {
+                    if (obj->pending.set && obj->subdev) {
                         obj->x = obj->pending.x;
                         obj->y = obj->pending.y;
                         obj->pending.set = False;
 
-                        if (obj->objdev) {
+                        if (obj->subdev) {
                             /* OKAY FOR NOW, MAYBE UPDATE */
                             /* TODO: Add more valuators with additional information */
                             valuators[0] = obj->x * 0x7FFFFFFF;
                             valuators[1] = obj->y * 0x7FFFFFFF;
 
-                            xf86PostMotionEventP(obj->objdev->pInfo->dev,
+                            xf86PostMotionEventP(obj->subdev->pInfo->dev,
                                     TRUE, /* is_absolute */
                                     0, /* first_valuator */
                                     2, /* num_valuators */
@@ -369,7 +379,7 @@ TuioControl(DeviceIntPtr device,
             }
 
             /* Setup server */
-            pTuio->server = lo_server_new_with_proto("3333", LO_UDP, lo_error);
+            pTuio->server = lo_server_new_with_proto("3333", LO_UDP, _lo_error);
             if (pTuio->server == NULL) {
                 xf86Msg(X_ERROR, "%s: Error allocating new lo_server\n", 
                         pInfo->name);
@@ -447,7 +457,7 @@ _tuio_lo_cur2d_handle(const char *path,
                       void *user_data) {
     InputInfoPtr pInfo = user_data;
     TuioDevicePtr pTuio = pInfo->private;
-    ObjectPtr head = pTuio->obj_list;
+    ObjectPtr *obj_list = &pTuio->obj_list;
     ObjectPtr obj, objtemp;
     char *act;
     int i;
@@ -476,14 +486,15 @@ _tuio_lo_cur2d_handle(const char *path,
             return 0;
         }
 
-        obj = _object_get(head, argv[1]->i);
+        obj = _object_get(*obj_list, argv[1]->i);
 
         /* If not found, create a new object */
         if (obj == NULL) {
-            obj = _object_new(pTuio, argv[1]->i);
-            _object_attach_subdev(pTuio, obj);
-            if (obj->objdev)
-                xf86PostButtonEvent(obj->objdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
+            obj = _object_new(argv[1]->i);
+            _object_add(obj_list, obj);
+            obj->subdev = _subdev_remove(&pTuio->subdev_list);
+            if (obj->subdev)
+                xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
         }
 
         obj->pending.x = argv[2]->f;
@@ -493,7 +504,7 @@ _tuio_lo_cur2d_handle(const char *path,
     } else if (strcmp((char *)argv[0], "alive") == 0) {
 
         /* Mark all objects that are still alive */
-        obj = head;
+        obj = *obj_list;
         while (obj != NULL) {
             for (i=1; i<argc; i++) {
                 if (argv[i]->i == obj->id) {
@@ -521,7 +532,7 @@ _tuio_lo_cur2d_handle(const char *path,
  * liblo error handler
  */
 static void
-lo_error(int num,
+_lo_error(int num,
          const char *msg,
          const char *path)
 {
@@ -531,7 +542,7 @@ lo_error(int num,
 /**
  * Retrieves an object from a list based on its id.
  *
- * @returns NULL if not found.
+ * @return NULL if not found.
  */
 static ObjectPtr
 _object_get(ObjectPtr head, int id) {
@@ -553,20 +564,8 @@ _object_get(ObjectPtr head, int id) {
  * @return ptr to newly inserted object
  */
 static ObjectPtr 
-_object_new(TuioDevicePtr pTuio, int id) {
-    ObjectPtr obj = pTuio->obj_list;
-    ObjectDevPtr objdev = pTuio->unused_device_list;
-
+_object_new(int id) {
     ObjectPtr new_obj = xcalloc(1, sizeof(ObjectRec));
-
-    if (obj)
-        new_obj->next = obj;
-    pTuio->obj_list = new_obj;
-
-    if (objdev) 
-        pTuio->unused_device_list = objdev->next;
-    new_obj->objdev = objdev;
-    objdev = NULL;
 
     new_obj->id = id;
     new_obj->alive = True;
@@ -574,69 +573,79 @@ _object_new(TuioDevicePtr pTuio, int id) {
     return new_obj;
 }
 
-static void
-_object_attach_subdev(TuioDevicePtr pTuio, ObjectPtr obj) {
-    ObjectDevPtr objdev;
-
-    /* Device  already attached? */
-    if (obj->objdev)
-        return;
-
-    objdev = pTuio->unused_device_list;
-
-    if (objdev) 
-        pTuio->unused_device_list = objdev->next;
-
-    obj->objdev = objdev;
-}
-
 /**
- * Removes an object from a list.
+ * Adds a SubDevice to the beginning of the subdev_list list
  */
 static void
-_object_remove(TuioDevicePtr pTuio, ObjectPtr *head, int id) {
-    ObjectPtr obj = *head;
-    ObjectPtr objtmp;
-    ObjectDevPtr objdev;
+_object_add(ObjectPtr *obj_list, ObjectPtr obj) {
+    if (obj_list == NULL || obj == NULL)
+        return;
 
-    if (obj != NULL && obj->id == id) {
-        *head = (*head)->next;
-        if (obj->objdev) {
-            objdev = pTuio->unused_device_list;
-            if (objdev)
-                obj->objdev->next = objdev;
-            pTuio->unused_device_list = obj->objdev;
-        }
-    } else if (obj != NULL) {
+    if (*obj_list != NULL) {
+        obj->next = *obj_list;
+    }
+    *obj_list = obj;
+}
+
+
+/**
+ * Removes an Object with a specific id from a list.
+ */
+static ObjectPtr
+_object_remove(ObjectPtr *obj_list, int id) {
+    ObjectPtr obj = *obj_list;
+    ObjectPtr objtmp;
+
+    if (obj == NULL) return; /* Empty list */
+
+    if (obj->id == id) { /* Remove from head */
+        *obj_list = obj->next;
+    } else {
         while (obj->next != NULL) {
             if (obj->next->id == id) {
                 objtmp = obj->next;
                 obj->next = objtmp->next;
-                
-                if (objtmp->objdev) {
-                    objdev = pTuio->unused_device_list;
-                    if (objdev)
-                        objtmp->objdev->next = objdev;
-                    pTuio->unused_device_list = objtmp->objdev;
-                }
-                    
-                xfree(objtmp);
-                break;
+                obj = objtmp;
+                obj->next = NULL;
+                return obj;    
             }
             obj = obj->next;
         }
+        obj = NULL;
     }
+
+    return obj;
 }
 
+/**
+ * Adds a SubDevice to the beginning of the subdev_list list
+ */
 static void
-_object_remove_subdev(ObjectDevPtr *unused_subdevs, ObjectPtr obj) {
-    ObjectDevPtr objdev;
-
-    if (!obj || !obj->objdev)
+_subdev_add(SubDevicePtr *subdev_list, SubDevicePtr subdev) {
+    if (subdev_list == NULL || subdev == NULL)
         return;
 
-    objdev = *unused_subdevs;
+    if (*subdev_list != NULL) {
+        subdev->next = *subdev_list;
+    }
+    *subdev_list = subdev;
+}
 
+/**
+ * Removes a SubDevice from the subdev_list list
+ */
+static SubDevicePtr
+_subdev_remove(SubDevicePtr *subdev_list) {
+    SubDevicePtr subdev;
+
+    if (subdev_list == NULL || *subdev_list == NULL)
+        return NULL;
+
+    subdev = *subdev_list;
+    *subdev_list = subdev->next;
+    subdev->next = NULL;
+
+    return subdev;
 }
 
 /**
@@ -650,7 +659,7 @@ _tuio_init_buttons(DeviceIntPtr device)
     Atom                *labels;
     int numbuttons = 4;
     int                 ret = Success;
-    int                 i;
+    int i;
 
     map = xcalloc(numbuttons, sizeof(CARD8));
     labels = xcalloc(1, sizeof(Atom));

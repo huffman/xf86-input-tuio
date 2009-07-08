@@ -31,9 +31,10 @@
 #include <lo/lo.h>
 #include <hal/libhal.h>
 
-#define MIN_SUBDEVICES 1
+#define MIN_SUBDEVICES 0 /* min/max subdevices */
 #define MAX_SUBDEVICES 20
-#define DEFAULT_PORT 3333
+
+#define DEFAULT_PORT 3333 /* Default UDP port to listen on */
 
 /**
  * Tuio device information, including list of current object
@@ -50,8 +51,8 @@ typedef struct _TuioDevice {
     struct _Object *obj_list;
 
     /* List of unused devices that can be allocated for use
-     * by ObjectPtr. */
-    struct _ObjectDev *unused_device_list;
+     * with ObjectPtr. */
+    struct _SubDevice *subdev_list;
 
 } TuioDeviceRec, *TuioDevicePtr;
 
@@ -63,7 +64,7 @@ typedef struct _Object {
     int id;
     float x, y;
     int alive;
-    struct _ObjectDev *objdev;
+    struct _SubDevice *subdev;
 
     /* Stores pending information about this object */
     struct {
@@ -77,14 +78,14 @@ typedef struct _Object {
 } ObjectRec, *ObjectPtr;
 
 /**
- * Object devices are special devices created at the creation of the first
- * tuio device (aka "core device).  They are tuio devices but are only used 
+ * Subdevices are special devices created at the creation of the first
+ * tuio device (aka "core" device).  They are tuio devices but are only used 
  * to route object movements through.
  */
-typedef struct _ObjectDev {
+typedef struct _SubDevice {
     InputInfoPtr pInfo;
-    struct _ObjectDev *next;
-} ObjectDevRec, *ObjectDevPtr;
+    struct _SubDevice *next;
+} SubDeviceRec, *SubDevicePtr;
 
 #endif
 
