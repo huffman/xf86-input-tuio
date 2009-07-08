@@ -38,6 +38,7 @@
 
 /* InputInfoPtr for main tuio device */
 static TuioDevicePtr g_pTuio;
+static int pipefd[2] = {-1, -1};
 
 /* Module Functions */
 static pointer
@@ -331,6 +332,7 @@ TuioControl(DeviceIntPtr device,
 {
     InputInfoPtr pInfo = device->public.devicePrivate;
     TuioDevicePtr pTuio = pInfo->private;
+    int res;
 
     switch (what)
     {
@@ -350,14 +352,18 @@ TuioControl(DeviceIntPtr device,
             if (device->public.on)
                 break;
 
-            /* If this is an object device, set /dev/null fd */
+            /* If this is an object device, use a dummy pipe */
             if (!pTuio) {
-                SYSCALL(pInfo->fd = open("/dev/null", O_RDWR | O_NONBLOCK));
-                if (pInfo->fd == -1) {
-                    xf86Msg(X_ERROR, "%s: failed to open /dev/null\n",
-                            pInfo->name);
-                    return BadAlloc;
+                if (pipefd[0] == -1) {
+                    SYSCALL(res = pipe(pipefd));
+                    if (res == -1) {
+                        xf86Msg(X_ERROR, "%s: failed to open pipe\n",
+                                pInfo->name);
+                        return BadAlloc;
+                    }
                 }
+
+                pInfo->fd = pipefd[0];
 
                 goto finish;
             }
@@ -446,8 +452,12 @@ _tuio_lo_cur2d_handle(const char *path,
     char *act;
     int i;
 
-    if (argc == 0 || *types != 's') {
+    if (argc == 0) {
         xf86Msg(X_ERROR, "%s: Error in /tuio/cur2d (argc == 0)\n", 
+                pInfo->name);
+        return 0;
+    } else if(*types != 's') {
+        xf86Msg(X_ERROR, "%s: Error in /tuio/cur2d (types[0] != 's')\n", 
                 pInfo->name);
         return 0;
     }
@@ -516,119 +526,6 @@ lo_error(int num,
          const char *path)
 {
     xf86Msg(X_ERROR, "liblo: %s\n", msg);
-}
-
-/**
- * New device creation through hal
- * I referenced the wacom hal-setup patch while writing this:
- * http://cvs.fedoraproject.org/viewvc/rpms/linuxwacom/devel/linuxwacom-0.8.2.2-hal-setup.patch?revision=1.1&view=markup
- *
- * @return 0 if successful, 1 if failure
- */
-static int
-_init_devices(InputInfoPtr pInfo, int num) {
-    DBusError error;
-    DBusConnection *conn;
-    LibHalContext *ctx;
-    char *newdev;
-    char *name;
-    int i;
-
-    /* We need a new device to send motion/button events through.
-     * There isn't a great way to do this right now without native
-     * blob events, so just hack it out for now.  Woot. */
-
-    /* Open connection to dbus and create contex */
-    dbus_error_init(&error);
-    if ((conn = dbus_bus_get(DBUS_BUS_SYSTEM, &error)) == NULL) {
-        xf86Msg(X_ERROR, "%s: Failed to open dbus connection: %s\n",
-                pInfo->name, error.message);
-		return 1;
-	}
-	if ((ctx = libhal_ctx_new()) == NULL) {
-        xf86Msg(X_ERROR, "%s: Failed to obtain hal context: %s\n",
-                pInfo->name, error.message);
-		return 1;
-	}
-
-    dbus_error_init(&error);
-    libhal_ctx_set_dbus_connection(ctx, conn);
-    if (!libhal_ctx_init(ctx, &error)) {
-        xf86Msg(X_ERROR, "%s: Failed to initialize hal context: %s\n",
-                pInfo->name, error.message);
-		return 1;
-    }
-
-    /* Create new devices through hal */
-    for (i=0; i<num; i++) {
-
-        dbus_error_init(&error);
-        newdev = libhal_new_device(ctx, &error);
-        if (dbus_error_is_set(&error) == TRUE) {
-            xf86Msg(X_ERROR, "%s: Failed to create input device: %s\n",
-                    pInfo->name, error.message);
-            return 1;
-        }
-
-        dbus_error_init(&error);
-        libhal_device_set_property_string(ctx, newdev, "input.device",
-                "blob", &error);
-        if (dbus_error_is_set(&error) == TRUE) {
-            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
-                    pInfo->name, error.message);
-            return 1;
-        }
-
-        dbus_error_init(&error);
-        libhal_device_set_property_string(ctx, newdev,
-                "input.x11_driver", "tuio",
-                &error);
-        if (dbus_error_is_set(&error) == TRUE) {
-            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
-                    pInfo->name, error.message);
-            return 1;
-        }
-
-        /* Set "Type" property.  This will be used in TuioPreInit to determine
-         * whether the new device is an object device or not */
-        dbus_error_init(&error);
-        libhal_device_set_property_string(ctx, newdev,
-                "input.x11_options.Type",
-                "Object", &error);
-        if (dbus_error_is_set(&error) == TRUE) {
-            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
-                    pInfo->name, error.message);
-            return 1;
-        }
-
-        asprintf(&name, "%s subdev %i", pInfo->name, i);
-
-        /* Set name */
-        dbus_error_init(&error);
-        libhal_device_set_property_string(ctx, newdev,
-                           "info.product", name,
-                           &error);
-        if (dbus_error_is_set(&error) == TRUE) {
-            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
-                 pInfo->name, error.message);
-            return 1;
-        }
-
-        /* Finalize creation of new device */
-        dbus_error_init(&error);
-        libhal_device_commit_to_gdl(ctx, newdev, "/org/freedesktop/Hal/devices/tuio_subdev", &error);
-        if (dbus_error_is_set (&error) == TRUE) {
-            xf86Msg(X_ERROR, "%s: Failed to add input device: %s\n",
-                 pInfo->name, error.message);
-            return 1;
-        }
-
-        xfree(name);
-    }
-
-    //libhal_context_free(ctx);
-
-    return 0;
 }
 
 /**
@@ -814,4 +711,117 @@ _tuio_init_axes(DeviceIntPtr device)
         xf86InitValuatorDefaults(device, i);
     }
     return Success;
+}
+
+/**
+ * New device creation through hal
+ * I referenced the wacom hal-setup patch while writing this:
+ * http://cvs.fedoraproject.org/viewvc/rpms/linuxwacom/devel/linuxwacom-0.8.2.2-hal-setup.patch?revision=1.1&view=markup
+ *
+ * @return 0 if successful, 1 if failure
+ */
+static int
+_init_devices(InputInfoPtr pInfo, int num) {
+    DBusError error;
+    DBusConnection *conn;
+    LibHalContext *ctx;
+    char *newdev;
+    char *name;
+    int i;
+
+    /* We need a new device to send motion/button events through.
+     * There isn't a great way to do this right now without native
+     * blob events, so just hack it out for now.  Woot. */
+
+    /* Open connection to dbus and create contex */
+    dbus_error_init(&error);
+    if ((conn = dbus_bus_get(DBUS_BUS_SYSTEM, &error)) == NULL) {
+        xf86Msg(X_ERROR, "%s: Failed to open dbus connection: %s\n",
+                pInfo->name, error.message);
+		return 1;
+	}
+	if ((ctx = libhal_ctx_new()) == NULL) {
+        xf86Msg(X_ERROR, "%s: Failed to obtain hal context: %s\n",
+                pInfo->name, error.message);
+		return 1;
+	}
+
+    dbus_error_init(&error);
+    libhal_ctx_set_dbus_connection(ctx, conn);
+    if (!libhal_ctx_init(ctx, &error)) {
+        xf86Msg(X_ERROR, "%s: Failed to initialize hal context: %s\n",
+                pInfo->name, error.message);
+		return 1;
+    }
+
+    /* Create new devices through hal */
+    for (i=0; i<num; i++) {
+
+        dbus_error_init(&error);
+        newdev = libhal_new_device(ctx, &error);
+        if (dbus_error_is_set(&error) == TRUE) {
+            xf86Msg(X_ERROR, "%s: Failed to create input device: %s\n",
+                    pInfo->name, error.message);
+            return 1;
+        }
+
+        dbus_error_init(&error);
+        libhal_device_set_property_string(ctx, newdev, "input.device",
+                "blob", &error);
+        if (dbus_error_is_set(&error) == TRUE) {
+            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+                    pInfo->name, error.message);
+            return 1;
+        }
+
+        dbus_error_init(&error);
+        libhal_device_set_property_string(ctx, newdev,
+                "input.x11_driver", "tuio",
+                &error);
+        if (dbus_error_is_set(&error) == TRUE) {
+            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+                    pInfo->name, error.message);
+            return 1;
+        }
+
+        /* Set "Type" property.  This will be used in TuioPreInit to determine
+         * whether the new device is an object device or not */
+        dbus_error_init(&error);
+        libhal_device_set_property_string(ctx, newdev,
+                "input.x11_options.Type",
+                "Object", &error);
+        if (dbus_error_is_set(&error) == TRUE) {
+            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+                    pInfo->name, error.message);
+            return 1;
+        }
+
+        asprintf(&name, "%s subdev %i", pInfo->name, i);
+
+        /* Set name */
+        dbus_error_init(&error);
+        libhal_device_set_property_string(ctx, newdev,
+                           "info.product", name,
+                           &error);
+        if (dbus_error_is_set(&error) == TRUE) {
+            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+                 pInfo->name, error.message);
+            return 1;
+        }
+
+        /* Finalize creation of new device */
+        dbus_error_init(&error);
+        libhal_device_commit_to_gdl(ctx, newdev, "/org/freedesktop/Hal/devices/tuio_subdev", &error);
+        if (dbus_error_is_set (&error) == TRUE) {
+            xf86Msg(X_ERROR, "%s: Failed to add input device: %s\n",
+                 pInfo->name, error.message);
+            return 1;
+        }
+
+        xfree(name);
+    }
+
+    //libhal_context_free(ctx);
+
+    return 0;
 }
