@@ -195,11 +195,6 @@ TuioPreInit(InputDriverPtr drv,
 
         xf86Msg(X_INFO, "%s: Object device found\n", dev->identifier);
 
-        /* Allocate device storage and add to device list */
-        subdev = xcalloc(1, sizeof(SubDeviceRec));
-        subdev->pInfo = pInfo;
-        _subdev_add(&g_pTuio->subdev_list, subdev);
-
     } else {
 
         if (!(pTuio = xcalloc(1, sizeof(TuioDeviceRec)))) {
@@ -229,12 +224,18 @@ TuioPreInit(InputDriverPtr drv,
         pTuio->tuio_port = tuio_port;
 
         /* Get setting for checking fseq numbers in TUIO packets */
-        pTuio->check_fseq= xf86CheckBoolOption(dev->commonOptions, "CheckFseq", True);
-        if (!pTuio->check_fseq) {
-            xf86Msg(X_INFO, "%s: CheckFseq set to False\n",
-                    dev->identifier);
+        pTuio->fseq_threshold= xf86CheckIntOption(dev->commonOptions,
+                "FseqThreshold", 100);
+        if (pTuio->fseq_threshold != 100) {
+            xf86Msg(X_INFO, "%s: FseqThreshold set to %i\n",
+                    dev->identifier, pTuio->fseq_threshold);
         }
     }
+
+    /* Allocate device storage and add to device list */
+    subdev = xcalloc(1, sizeof(SubDeviceRec));
+    subdev->pInfo = pInfo;
+    _subdev_add(&g_pTuio->subdev_list, subdev);
 
     /* Set up InputInfoPtr */
     pInfo->name = xstrdup(dev->identifier);
@@ -303,7 +304,8 @@ TuioReadInput(InputInfoPtr pInfo)
          * Also check to make sure the processed data was newer than
          * the last processed data */
         if (pTuio->processed &&
-            (pTuio->fseq_new > pTuio->fseq_old || !pTuio->check_fseq)) {
+            (pTuio->fseq_new > pTuio->fseq_old ||
+             pTuio->fseq_old - pTuio->fseq_new > pTuio->fseq_threshold)) {
 
             while (obj != NULL) {
                 if (!obj->alive) {

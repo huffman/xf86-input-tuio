@@ -48,6 +48,7 @@ typedef struct _TuioDevice {
     int tuio_port;
     int num_subdev;
     Bool check_fseq;
+    int fseq_threshold;
 
     struct _Object *obj_list;
 
