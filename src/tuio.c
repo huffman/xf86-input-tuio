@@ -206,7 +206,8 @@ TuioPreInit(InputDriverPtr drv,
         pInfo->private = pTuio;
 
         /* Get the number of subdevices we need to create */
-        num_subdev = xf86CheckIntOption(dev->commonOptions, "SubDevices", 5); 
+        num_subdev = xf86CheckIntOption(dev->commonOptions, "SubDevices",
+                DEFAULT_SUBDEVICES); 
         if (num_subdev > MAX_SUBDEVICES) {
             num_subdev = MAX_SUBDEVICES;
         } else if (num_subdev < MIN_SUBDEVICES) {
@@ -368,7 +369,7 @@ TuioControl(DeviceIntPtr device,
 
             /* If this is a "core" device, create object devices */
             if (pTuio) {
-                _init_devices(pInfo, pTuio->num_subdev - 1);
+                _init_devices(pInfo, pTuio->num_subdev);
             }
             break;
 
