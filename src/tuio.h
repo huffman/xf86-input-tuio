@@ -47,6 +47,7 @@ typedef struct _TuioDevice {
 
     int tuio_port;
     int num_subdev;
+    Bool check_fseq;
 
     struct _Object *obj_list;
 
@@ -61,6 +62,8 @@ typedef struct _TuioDevice {
  * /tuio/blob
  */
 typedef struct _Object {
+    struct _Object *next;
+
     int id;
     float x, y;
     int alive;
@@ -72,9 +75,6 @@ typedef struct _Object {
         Bool set;
         float x, y;
     } pending;
-
-    struct _Object *next;
-
 } ObjectRec, *ObjectPtr;
 
 /**
@@ -83,8 +83,9 @@ typedef struct _Object {
  * to route object movements through.
  */
 typedef struct _SubDevice {
-    InputInfoPtr pInfo;
     struct _SubDevice *next;
+
+    InputInfoPtr pInfo;
 } SubDeviceRec, *SubDevicePtr;
 
 #endif

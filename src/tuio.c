@@ -27,7 +27,11 @@
 
 #include <xf86Xinput.h>
 #include <X11/extensions/XIproto.h>
+
+#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
 #include <X11/extensions/XInput2.h>
+#endif
+
 #include <xf86_OSlib.h>
 
 #include "tuio.h"
@@ -223,6 +227,13 @@ TuioPreInit(InputDriverPtr drv,
             tuio_port = DEFAULT_PORT;
         }
         pTuio->tuio_port = tuio_port;
+
+        /* Get setting for checking fseq numbers in TUIO packets */
+        pTuio->check_fseq= xf86CheckBoolOption(dev->commonOptions, "CheckFseq", True);
+        if (!pTuio->check_fseq) {
+            xf86Msg(X_INFO, "%s: CheckFseq set to False\n",
+                    dev->identifier);
+        }
     }
 
     /* Set up InputInfoPtr */
@@ -291,7 +302,8 @@ TuioReadInput(InputInfoPtr pInfo)
          * remove any dead object ids and set any pending changes.
          * Also check to make sure the processed data was newer than
          * the last processed data */
-        if (pTuio->processed && pTuio->fseq_new > pTuio->fseq_old) {
+        if (pTuio->processed &&
+            (pTuio->fseq_new > pTuio->fseq_old || !pTuio->check_fseq)) {
 
             while (obj != NULL) {
                 if (!obj->alive) {
@@ -342,6 +354,7 @@ TuioControl(DeviceIntPtr device,
 {
     InputInfoPtr pInfo = device->public.devicePrivate;
     TuioDevicePtr pTuio = pInfo->private;
+    char *tuio_port;
     int res;
 
     switch (what)
@@ -379,7 +392,8 @@ TuioControl(DeviceIntPtr device,
             }
 
             /* Setup server */
-            pTuio->server = lo_server_new_with_proto("3333", LO_UDP, _lo_error);
+            asprintf(&tuio_port, "%i", pTuio->tuio_port);
+            pTuio->server = lo_server_new_with_proto(tuio_port, LO_UDP, _lo_error);
             if (pTuio->server == NULL) {
                 xf86Msg(X_ERROR, "%s: Error allocating new lo_server\n", 
                         pInfo->name);
