@@ -86,6 +86,7 @@ typedef struct _Object {
     struct {
         Bool alive;
         Bool set;
+        Bool button;
         float x, y;
     } pending;
 } ObjectRec, *ObjectPtr;

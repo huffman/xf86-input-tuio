@@ -232,7 +232,7 @@ TuioPreInit(InputDriverPtr drv,
 
         /* Get setting for whether to send button events or not with
          * object add & remove */
-        pTuio->post_button_events = xf86CheckIntOption(dev->commonOptions,
+        pTuio->post_button_events = xf86CheckBoolOption(dev->commonOptions,
                 "PostButtonEvents", True);
     }
 
@@ -340,6 +340,11 @@ TuioReadInput(InputInfoPtr pInfo)
                                     0, /* first_valuator */
                                     2, /* num_valuators */
                                     valuators);
+                            
+                            if (obj->pending.button) {
+                                xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
+                                obj->pending.button = False;
+                            }
                         }
                     }
                     obj->alive = 0; /* Reset for next message */
@@ -514,7 +519,7 @@ _tuio_lo_cur2d_handle(const char *path,
             _object_add(obj_list, obj);
             obj->subdev = _subdev_remove(&pTuio->subdev_list);
             if (obj->subdev && pTuio->post_button_events)
-                xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
+                obj->pending.button = True;
         }
 
         obj->pending.x = argv[2]->f;
