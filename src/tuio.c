@@ -28,9 +28,7 @@
 #include <xf86Xinput.h>
 #include <X11/extensions/XIproto.h>
 
-#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
 #include <X11/extensions/XInput2.h>
-#endif
 
 #include <xf86_OSlib.h>
 
@@ -231,6 +229,11 @@ TuioPreInit(InputDriverPtr drv,
             xf86Msg(X_INFO, "%s: FseqThreshold set to %i\n",
                     dev->identifier, pTuio->fseq_threshold);
         }
+
+        /* Get setting for whether to send button events or not with
+         * object add & remove */
+        pTuio->post_button_events = xf86CheckIntOption(dev->commonOptions,
+                "PostButtonEvents", True);
     }
 
     /* Allocate device storage and add to device list */
@@ -310,7 +313,7 @@ TuioReadInput(InputInfoPtr pInfo)
 
             while (obj != NULL) {
                 if (!obj->alive) {
-                    if (obj->subdev) {
+                    if (obj->subdev && pTuio->post_button_events) {
                         /* Post button "up" event */
                         xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, FALSE, 0, 0);
                     }
@@ -510,7 +513,7 @@ _tuio_lo_cur2d_handle(const char *path,
             obj = _object_new(argv[1]->i);
             _object_add(obj_list, obj);
             obj->subdev = _subdev_remove(&pTuio->subdev_list);
-            if (obj->subdev)
+            if (obj->subdev && pTuio->post_button_events)
                 xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
         }
 
@@ -679,7 +682,7 @@ _tuio_init_buttons(DeviceIntPtr device)
     int i;
 
     map = xcalloc(numbuttons, sizeof(CARD8));
-    labels = xcalloc(1, sizeof(Atom));
+    labels = xcalloc(numbuttons, sizeof(Atom));
     for (i=0; i<numbuttons; i++)
         map[i] = i;
 

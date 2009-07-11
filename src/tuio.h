@@ -31,6 +31,16 @@
 #include <lo/lo.h>
 #include <hal/libhal.h>
 
+#ifndef Bool
+#define Bool int
+#endif
+#ifndef True
+#define True 1
+#endif
+#ifndef False
+#define False 0
+#endif
+
 #define MIN_SUBDEVICES 0 /* min/max subdevices */
 #define MAX_SUBDEVICES 20
 #define DEFAULT_SUBDEVICES 5
@@ -48,8 +58,9 @@ typedef struct _TuioDevice {
 
     int tuio_port;
     int num_subdev;
-    Bool check_fseq;
-    int fseq_threshold;
+    Bool post_button_events;
+    int fseq_threshold; /* Maximum difference between consecutive fseq values
+                           that will allow a packet to be dropped */
 
     struct _Object *obj_list;
 

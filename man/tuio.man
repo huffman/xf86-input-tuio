@@ -6,6 +6,11 @@ tuio \- Multitouch TUIO Linux input driver
 .SH SYNOPSIS
 .nf
 .B "Section \*qInputDevice\*q"
+.BI "  Identifier \*q\" devname \*q
+.B  "  Driver \*qtuio\*q"
+.BI "  Option \*qPort\*q   \*q" 3333 \*q
+.BI "  Option \*qSubDevices\*q   \*q" 5 \*q
+.BI "  Option \*qPostButtonEvents\*q   \*q" True \*q
 \ \ ...
 .B EndSection
 .fi
