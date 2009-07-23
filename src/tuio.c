@@ -27,7 +27,6 @@
 
 #include <xf86Xinput.h>
 #include <X11/extensions/XIproto.h>
-
 #include <X11/extensions/XInput2.h>
 
 #include <xf86_OSlib.h>
@@ -39,7 +38,7 @@
 #endif
 
 /* InputInfoPtr for main tuio device */
-static TuioDevicePtr g_pTuio;
+static InputInfoPtr g_pInfo;
 static int pipefd[2] = {-1, -1};
 
 /* Module Functions */
@@ -67,13 +66,13 @@ TuioControl(DeviceIntPtr, int);
 
 /* Internal Functions */
 static int
-_init_devices(InputInfoPtr pInfo, int num);
+_hal_create_devices(InputInfoPtr pInfo, int num);
 
 static int
-_tuio_init_buttons(DeviceIntPtr device);
+_init_buttons(DeviceIntPtr device);
 
 static int
-_tuio_init_axes(DeviceIntPtr device);
+_init_axes(DeviceIntPtr device);
 
 static int
 _tuio_lo_cur2d_handle(const char *path,
@@ -91,7 +90,7 @@ _lo_error(int num,
          const char *msg,
          const char *path);
 
-/* Object list manipulation functions */
+/* Object and Subdev list manipulation functions */
 static ObjectPtr
 _object_get(ObjectPtr head, int id);
 
@@ -105,13 +104,16 @@ static ObjectPtr
 _object_remove(ObjectPtr *obj_list, int id);
 
 static void
-_subdev_add(SubDevicePtr *subdev_list, SubDevicePtr subdev);
+_subdev_add(InputInfoPtr pInfo, SubDevicePtr subdev);
 
 static SubDevicePtr
-_subdev_remove(SubDevicePtr *subdev_list);
+_subdev_remove(InputInfoPtr pInfo, SubDevicePtr *subdev_list);
 
 static SubDevicePtr
 _subdev_remove_sd(SubDevicePtr *subdev_list, SubDevicePtr subdev);
+
+static int
+_hal_remove_device(InputInfoPtr pInfo);
 
 /* Driver information */
 static XF86ModuleVersionInfo TuioVersionRec =
@@ -180,7 +182,6 @@ TuioPreInit(InputDriverPtr drv,
     ObjectPtr obj;
     SubDevicePtr subdev;
     char *type;
-    int id;
     int num_subdev, tuio_port;
 
     if (!(pInfo = xf86AllocateInput(drv, 0)))
@@ -190,8 +191,7 @@ TuioPreInit(InputDriverPtr drv,
     type = xf86CheckStrOption(dev->commonOptions, "Type", NULL); 
 
     if (type != NULL && strcmp(type, "Object") == 0) {
-
-        xf86Msg(X_INFO, "%s: Object device found\n", dev->identifier);
+        xf86Msg(X_INFO, "%s: TUIO subdevice found\n", dev->identifier);
 
     } else {
 
@@ -199,9 +199,11 @@ TuioPreInit(InputDriverPtr drv,
             xf86DeleteInput(pInfo, 0);
             return NULL;
         }
-        g_pTuio = pTuio;
+        g_pInfo = pInfo;
 
         pInfo->private = pTuio;
+
+        pTuio->num_subdev = 0;
 
         /* Get the number of subdevices we need to create */
         num_subdev = xf86CheckIntOption(dev->commonOptions, "SubDevices",
@@ -211,7 +213,7 @@ TuioPreInit(InputDriverPtr drv,
         } else if (num_subdev < MIN_SUBDEVICES) {
             num_subdev = MIN_SUBDEVICES;
         }
-        pTuio->num_subdev = num_subdev;
+        pTuio->init_num_subdev = num_subdev;
 
         /* Get the TUIO port number to use */
         tuio_port = xf86CheckIntOption(dev->commonOptions, "Port", DEFAULT_PORT);
@@ -220,15 +222,18 @@ TuioPreInit(InputDriverPtr drv,
                     dev->identifier, tuio_port, DEFAULT_PORT);
             tuio_port = DEFAULT_PORT;
         }
+        xf86Msg(X_INFO, "%s: TUIO UDP Port set to %i\n",
+                dev->identifier, tuio_port);
         pTuio->tuio_port = tuio_port;
 
         /* Get setting for checking fseq numbers in TUIO packets */
         pTuio->fseq_threshold= xf86CheckIntOption(dev->commonOptions,
                 "FseqThreshold", 100);
-        if (pTuio->fseq_threshold != 100) {
-            xf86Msg(X_INFO, "%s: FseqThreshold set to %i\n",
-                    dev->identifier, pTuio->fseq_threshold);
+        if (pTuio->fseq_threshold < 0) {
+            pTuio->fseq_threshold = 0;
         }
+        xf86Msg(X_INFO, "%s: FseqThreshold set to %i\n",
+                dev->identifier, pTuio->fseq_threshold);
 
         /* Get setting for whether to send button events or not with
          * object add & remove */
@@ -239,7 +244,7 @@ TuioPreInit(InputDriverPtr drv,
     /* Allocate device storage and add to device list */
     subdev = xcalloc(1, sizeof(SubDeviceRec));
     subdev->pInfo = pInfo;
-    _subdev_add(&g_pTuio->subdev_list, subdev);
+    _subdev_add(g_pInfo, subdev);
 
     /* Set up InputInfoPtr */
     pInfo->name = xstrdup(dev->identifier);
@@ -292,7 +297,7 @@ TuioReadInput(InputInfoPtr pInfo)
     ObjectPtr objtmp;
     int valuators[2];
 
-    while(xf86WaitForInput(pInfo->fd, 0) > 0)
+    while (xf86WaitForInput(pInfo->fd, 0) > 0)
     {
         /* The liblo handler will set this flag if anything was processed */
         pTuio->processed = 0;
@@ -319,32 +324,33 @@ TuioReadInput(InputInfoPtr pInfo)
                     }
                     objtmp = obj->next;
                     obj = _object_remove(obj_list, obj->id);
-                    _subdev_add(subdev_list, obj->subdev);
+                    _subdev_add(pInfo, obj->subdev);
                     xfree(obj);
                     obj = objtmp;
 
                 } else {
+                    /* Object is alive.  Check to see if an update has been set.
+                     * If it has been updated and it has a subdevice to send
+                     * events on, send the event) */
                     if (obj->pending.set && obj->subdev) {
                         obj->x = obj->pending.x;
                         obj->y = obj->pending.y;
                         obj->pending.set = False;
 
-                        if (obj->subdev) {
-                            /* OKAY FOR NOW, MAYBE UPDATE */
-                            /* TODO: Add more valuators with additional information */
-                            valuators[0] = obj->x * 0x7FFFFFFF;
-                            valuators[1] = obj->y * 0x7FFFFFFF;
+                        /* OKAY FOR NOW, maybe update with a better range? */
+                        /* TODO: Add more valuators with additional information */
+                        valuators[0] = obj->x * 0x7FFFFFFF;
+                        valuators[1] = obj->y * 0x7FFFFFFF;
 
-                            xf86PostMotionEventP(obj->subdev->pInfo->dev,
-                                    TRUE, /* is_absolute */
-                                    0, /* first_valuator */
-                                    2, /* num_valuators */
-                                    valuators);
-                            
-                            if (obj->pending.button) {
-                                xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
-                                obj->pending.button = False;
-                            }
+                        xf86PostMotionEventP(obj->subdev->pInfo->dev,
+                                TRUE, /* is_absolute */
+                                0, /* first_valuator */
+                                2, /* num_valuators */
+                                valuators);
+                        
+                        if (obj->pending.button) {
+                            xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, TRUE, 0, 0);
+                            obj->pending.button = False;
                         }
                     }
                     obj->alive = 0; /* Reset for next message */
@@ -372,12 +378,12 @@ TuioControl(DeviceIntPtr device,
     {
         case DEVICE_INIT:
             xf86Msg(X_INFO, "%s: Init\n", pInfo->name);
-            _tuio_init_buttons(device);
-            _tuio_init_axes(device);
+            _init_buttons(device);
+            _init_axes(device);
 
             /* If this is a "core" device, create object devices */
             if (pTuio) {
-                _init_devices(pInfo, pTuio->num_subdev);
+                _hal_create_devices(pInfo, pTuio->init_num_subdev);
             }
             break;
 
@@ -440,6 +446,7 @@ finish:     xf86AddEnabledDevice(pInfo);
 
         case DEVICE_CLOSE:
             xf86Msg(X_INFO, "%s: Close\n", pInfo->name);
+            _hal_remove_device(pInfo);
             break;
 
     }
@@ -517,7 +524,7 @@ _tuio_lo_cur2d_handle(const char *path,
         if (obj == NULL) {
             obj = _object_new(argv[1]->i);
             _object_add(obj_list, obj);
-            obj->subdev = _subdev_remove(&pTuio->subdev_list);
+            obj->subdev = _subdev_remove(pInfo, &pTuio->subdev_list);
             if (obj->subdev && pTuio->post_button_events)
                 obj->pending.button = True;
         }
@@ -527,7 +534,6 @@ _tuio_lo_cur2d_handle(const char *path,
         obj->pending.set = True;
 
     } else if (strcmp((char *)argv[0], "alive") == 0) {
-
         /* Mark all objects that are still alive */
         obj = *obj_list;
         while (obj != NULL) {
@@ -562,6 +568,33 @@ _lo_error(int num,
          const char *path)
 {
     xf86Msg(X_ERROR, "liblo: %s\n", msg);
+}
+
+/**
+ * TUIO New Object Event.  Called when a new object has been found
+ * as per the incoming TUIO messages.
+ */
+static void
+_tuio_object_new(TuioDevicePtr pTuio, int id) {
+
+}
+
+/**
+ * TUIO Update Object Event.  Called when an object has been updated 
+ * as per the incoming TUIO messages.
+ */
+static void
+_tuio_object_update(TuioDevicePtr pTuio, int id) {
+
+}
+
+/**
+ * TUIO Remove Object Event.  Called when an object has been removed
+ * as per the incoming TUIO messages.
+ */
+static void
+_tuio_object_remove(TuioDevicePtr pTuio, int id) {
+
 }
 
 /**
@@ -603,6 +636,7 @@ _object_new(int id) {
  */
 static void
 _object_add(ObjectPtr *obj_list, ObjectPtr obj) {
+
     if (obj_list == NULL || obj == NULL)
         return;
 
@@ -646,10 +680,25 @@ _object_remove(ObjectPtr *obj_list, int id) {
  * Adds a SubDevice to the beginning of the subdev_list list
  */
 static void
-_subdev_add(SubDevicePtr *subdev_list, SubDevicePtr subdev) {
+_subdev_add(InputInfoPtr pInfo, SubDevicePtr subdev) {
+    TuioDevicePtr pTuio = pInfo->private;
+    SubDevicePtr *subdev_list = &pTuio->subdev_list;
+    ObjectPtr obj = pTuio->obj_list;
+
     if (subdev_list == NULL || subdev == NULL)
         return;
 
+    /* First check to see if there are any objects that don't have a 
+     * subdevice that we can assign this subdevice to */
+    while (obj != NULL) {
+        if (obj->subdev == NULL) {
+            obj->subdev = subdev;
+            return;
+        }
+        obj = obj->next;
+    }
+
+    /* No subdevice-less objects, add to front of  subdev list */
     if (*subdev_list != NULL) {
         subdev->next = *subdev_list;
     }
@@ -660,11 +709,13 @@ _subdev_add(SubDevicePtr *subdev_list, SubDevicePtr subdev) {
  * Removes a SubDevice from the subdev_list list
  */
 static SubDevicePtr
-_subdev_remove(SubDevicePtr *subdev_list) {
+_subdev_remove(InputInfoPtr pInfo, SubDevicePtr *subdev_list) {
     SubDevicePtr subdev;
 
-    if (subdev_list == NULL || *subdev_list == NULL)
+    if (subdev_list == NULL || *subdev_list == NULL) {
+        _hal_create_devices(pInfo, 1); /* Create one new subdevice */
         return NULL;
+    }
 
     subdev = *subdev_list;
     *subdev_list = subdev->next;
@@ -677,7 +728,7 @@ _subdev_remove(SubDevicePtr *subdev_list) {
  * Init the button map device.  We only use one button.
  */
 static int
-_tuio_init_buttons(DeviceIntPtr device)
+_init_buttons(DeviceIntPtr device)
 {
     InputInfoPtr        pInfo = device->public.devicePrivate;
     CARD8               *map;
@@ -708,7 +759,7 @@ _tuio_init_buttons(DeviceIntPtr device)
  * Init valuators for device, use x/y coordinates.
  */
 static int
-_tuio_init_axes(DeviceIntPtr device)
+_init_axes(DeviceIntPtr device)
 {
     InputInfoPtr        pInfo = device->public.devicePrivate;
     int                 i;
@@ -755,7 +806,8 @@ _tuio_init_axes(DeviceIntPtr device)
  * @return 0 if successful, 1 if failure
  */
 static int
-_init_devices(InputInfoPtr pInfo, int num) {
+_hal_create_devices(InputInfoPtr pInfo, int num) {
+    TuioDevicePtr pTuio = pInfo->private;
     DBusError error;
     DBusConnection *conn;
     LibHalContext *ctx;
@@ -774,9 +826,10 @@ _init_devices(InputInfoPtr pInfo, int num) {
                 pInfo->name, error.message);
 		return 1;
 	}
+
 	if ((ctx = libhal_ctx_new()) == NULL) {
-        xf86Msg(X_ERROR, "%s: Failed to obtain hal context: %s\n",
-                pInfo->name, error.message);
+        xf86Msg(X_ERROR, "%s: Failed to obtain hal context\n",
+                pInfo->name);
 		return 1;
 	}
 
@@ -801,7 +854,16 @@ _init_devices(InputInfoPtr pInfo, int num) {
 
         dbus_error_init(&error);
         libhal_device_set_property_string(ctx, newdev, "input.device",
-                "blob", &error);
+                "tuio_subdevice", &error);
+        if (dbus_error_is_set(&error) == TRUE) {
+            xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
+                    pInfo->name, error.message);
+            return 1;
+        }
+
+        dbus_error_init(&error);
+        libhal_device_set_property_bool(ctx, newdev, "RequireEnable",
+                False, &error);
         if (dbus_error_is_set(&error) == TRUE) {
             xf86Msg(X_ERROR, "%s: Failed to set hal property: %s\n",
                     pInfo->name, error.message);
@@ -819,7 +881,7 @@ _init_devices(InputInfoPtr pInfo, int num) {
         }
 
         /* Set "Type" property.  This will be used in TuioPreInit to determine
-         * whether the new device is an object device or not */
+         * whether the new device is a subdev or not */
         dbus_error_init(&error);
         libhal_device_set_property_string(ctx, newdev,
                 "input.x11_options.Type",
@@ -830,7 +892,7 @@ _init_devices(InputInfoPtr pInfo, int num) {
             return 1;
         }
 
-        asprintf(&name, "%s subdev %i", pInfo->name, i);
+        asprintf(&name, "%s subdev %i", pInfo->name, pTuio->num_subdev);
 
         /* Set name */
         dbus_error_init(&error);
@@ -853,9 +915,83 @@ _init_devices(InputInfoPtr pInfo, int num) {
         }
 
         xfree(name);
+        pTuio->num_subdev++;
     }
 
-    //libhal_context_free(ctx);
+    if (!libhal_ctx_shutdown(ctx, &error)) {
+        xf86Msg(X_ERROR, "%s: Unable to shutdown hal context: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+    libhal_ctx_free(ctx);
 
     return 0;
 }
+
+static int
+_hal_remove_device(InputInfoPtr pInfo) {
+    DBusError error;
+    DBusConnection *conn;
+    LibHalContext *ctx;
+    char** devices;
+    int i, num_devices;
+
+    xf86Msg(X_INFO, "%s: Removing subdevice\n",
+         pInfo->name);
+
+    /* Open connection to dbus and create contex */
+    dbus_error_init(&error);
+    if ((conn = dbus_bus_get(DBUS_BUS_SYSTEM, &error)) == NULL) {
+        xf86Msg(X_ERROR, "%s: Failed to open dbus connection: %s\n",
+                pInfo->name, error.message);
+		return 1;
+	}
+
+	if ((ctx = libhal_ctx_new()) == NULL) {
+        xf86Msg(X_ERROR, "%s: Failed to obtain hal context\n",
+                pInfo->name);
+		return 1;
+	}
+
+    dbus_error_init(&error);
+    libhal_ctx_set_dbus_connection(ctx, conn);
+    if (!libhal_ctx_init(ctx, &error)) {
+        xf86Msg(X_ERROR, "%s: Failed to initialize hal context: %s\n",
+                pInfo->name, error.message);
+		return 1;
+    }
+
+    devices = libhal_manager_find_device_string_match(ctx, "info.product",
+                                            pInfo->name,
+                                            &num_devices,
+                                            &error);
+    if (dbus_error_is_set(&error) == TRUE) {
+        xf86Msg(X_ERROR, "%s: Failed when trying to find device: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+
+    if (num_devices == 0) {
+        xf86Msg(X_ERROR, "%s: Unable to find subdevice in HAL GDL\n",
+             pInfo->name);
+    } else {
+        for (i=0; i<num_devices; i++) {
+            xf86Msg(X_INFO, "%s: Removing subdevice with udi '%s'\n",
+                 pInfo->name, devices[i]);
+            if (!libhal_remove_device(ctx, devices[i], &error)) {
+                xf86Msg(X_ERROR, "%s: Unable to remove subdevice: %s\n",
+                     pInfo->name, error.message);
+            }
+        }
+    }
+
+    if (!libhal_ctx_shutdown(ctx, &error)) {
+        xf86Msg(X_ERROR, "%s: Unable to shutdown hal context: %s\n",
+             pInfo->name, error.message);
+        return 1;
+    }
+    libhal_ctx_free(ctx);
+
+    return 0;
+}
+

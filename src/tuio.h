@@ -56,17 +56,21 @@ typedef struct _TuioDevice {
     int fseq_new, fseq_old;
     int processed;
 
-    int tuio_port;
     int num_subdev;
-    Bool post_button_events;
-    int fseq_threshold; /* Maximum difference between consecutive fseq values
-                           that will allow a packet to be dropped */
 
     struct _Object *obj_list;
 
     /* List of unused devices that can be allocated for use
      * with ObjectPtr. */
     struct _SubDevice *subdev_list;
+
+    /* Remaining variables are set by "Option" values */
+    int tuio_port;
+    int init_num_subdev;
+    Bool post_button_events;
+    int fseq_threshold; /* Maximum difference between consecutive fseq values
+                           that will allow a packet to be dropped */
+    Bool dynadd_subdev;
 
 } TuioDeviceRec, *TuioDevicePtr;
 
