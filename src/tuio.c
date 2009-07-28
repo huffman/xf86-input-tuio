@@ -571,33 +571,6 @@ _lo_error(int num,
 }
 
 /**
- * TUIO New Object Event.  Called when a new object has been found
- * as per the incoming TUIO messages.
- */
-static void
-_tuio_object_new(TuioDevicePtr pTuio, int id) {
-
-}
-
-/**
- * TUIO Update Object Event.  Called when an object has been updated 
- * as per the incoming TUIO messages.
- */
-static void
-_tuio_object_update(TuioDevicePtr pTuio, int id) {
-
-}
-
-/**
- * TUIO Remove Object Event.  Called when an object has been removed
- * as per the incoming TUIO messages.
- */
-static void
-_tuio_object_remove(TuioDevicePtr pTuio, int id) {
-
-}
-
-/**
  * Retrieves an object from a list based on its id.
  *
  * @return NULL if not found.
@@ -693,6 +666,9 @@ _subdev_add(InputInfoPtr pInfo, SubDevicePtr subdev) {
     while (obj != NULL) {
         if (obj->subdev == NULL) {
             obj->subdev = subdev;
+            if (pTuio->post_button_events)
+                obj->pending.button = True;
+            obj->pending.set = True;
             return;
         }
         obj = obj->next;
