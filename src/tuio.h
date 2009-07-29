@@ -76,7 +76,7 @@ typedef struct _TuioDevice {
 
 /**
  * An "Object" can represent a tuio blob or cursor (/tuio/2Dcur or
- * /tuio/blob
+ * /tuio/2Dblb
  */
 typedef struct _Object {
     struct _Object *next;

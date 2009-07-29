@@ -75,7 +75,7 @@ static int
 _init_axes(DeviceIntPtr device);
 
 static int
-_tuio_lo_cur2d_handle(const char *path,
+_tuio_lo_2dcur_handle(const char *path,
                    const char *types,
                    lo_arg **argv,
                    int argc,
@@ -419,7 +419,7 @@ TuioControl(DeviceIntPtr device,
 
             /* Register to receive all /tuio/2Dcur messages */
             lo_server_add_method(pTuio->server, "/tuio/2Dcur", NULL, 
-                                 _tuio_lo_cur2d_handle, pInfo);
+                                 _tuio_lo_2dcur_handle, pInfo);
 
             pInfo->fd = lo_server_get_socket_fd(pTuio->server);
 
@@ -481,7 +481,7 @@ _free_tuiodev(TuioDevicePtr pTuio) {
  * Handles OSC messages in the /tuio/2Dcur address space
  */
 static int
-_tuio_lo_cur2d_handle(const char *path,
+_tuio_lo_2dcur_handle(const char *path,
                       const char *types,
                       lo_arg **argv,
                       int argc,
