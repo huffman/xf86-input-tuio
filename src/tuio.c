@@ -106,11 +106,11 @@ _object_remove(ObjectPtr *obj_list, int id);
 static void
 _subdev_add(InputInfoPtr pInfo, SubDevicePtr subdev);
 
-static SubDevicePtr
-_subdev_remove(InputInfoPtr pInfo, SubDevicePtr *subdev_list);
+static void
+_subdev_remove(InputInfoPtr pInfo, InputInfoPtr sub_pInfo);
 
 static SubDevicePtr
-_subdev_remove_sd(SubDevicePtr *subdev_list, SubDevicePtr subdev);
+_subdev_get(InputInfoPtr pInfo, SubDevicePtr *subdev_list);
 
 static int
 _hal_remove_device(InputInfoPtr pInfo);
@@ -180,7 +180,6 @@ TuioPreInit(InputDriverPtr drv,
     InputInfoPtr  pInfo;
     TuioDevicePtr pTuio = NULL;
     ObjectPtr obj;
-    SubDevicePtr subdev;
     char *type;
     int num_subdev, tuio_port;
 
@@ -240,11 +239,6 @@ TuioPreInit(InputDriverPtr drv,
         pTuio->post_button_events = xf86CheckBoolOption(dev->commonOptions,
                 "PostButtonEvents", True);
     }
-
-    /* Allocate device storage and add to device list */
-    subdev = xcalloc(1, sizeof(SubDeviceRec));
-    subdev->pInfo = pInfo;
-    _subdev_add(g_pInfo, subdev);
 
     /* Set up InputInfoPtr */
     pInfo->name = xstrdup(dev->identifier);
@@ -371,6 +365,7 @@ TuioControl(DeviceIntPtr device,
 {
     InputInfoPtr pInfo = device->public.devicePrivate;
     TuioDevicePtr pTuio = pInfo->private;
+    SubDevicePtr subdev;
     char *tuio_port;
     int res;
 
@@ -392,7 +387,8 @@ TuioControl(DeviceIntPtr device,
             if (device->public.on)
                 break;
 
-            /* If this is an object device, use a dummy pipe */
+            /* If this is an object device, use a dummy pipe,
+             * and add device to subdev list */
             if (!pTuio) {
                 if (pipefd[0] == -1) {
                     SYSCALL(res = pipe(pipefd));
@@ -427,6 +423,11 @@ TuioControl(DeviceIntPtr device,
 
 finish:     xf86AddEnabledDevice(pInfo);
             device->public.on = TRUE;
+
+            /* Allocate device storage and add to device list */
+            subdev = xcalloc(1, sizeof(SubDeviceRec));
+            subdev->pInfo = pInfo;
+            _subdev_add(g_pInfo, subdev);
             break;
 
         case DEVICE_OFF:
@@ -440,6 +441,9 @@ finish:     xf86AddEnabledDevice(pInfo);
                 lo_server_free(pTuio->server);
                 pInfo->fd = -1;
             }
+            /* Remove subdev from list - This applies for both subdevices
+             * and the "core" device */
+            _subdev_remove(g_pInfo, pInfo);
 
             device->public.on = FALSE;
             break;
@@ -524,7 +528,7 @@ _tuio_lo_2dcur_handle(const char *path,
         if (obj == NULL) {
             obj = _object_new(argv[1]->i);
             _object_add(obj_list, obj);
-            obj->subdev = _subdev_remove(pInfo, &pTuio->subdev_list);
+            obj->subdev = _subdev_get(pInfo, &pTuio->subdev_list);
             if (obj->subdev && pTuio->post_button_events)
                 obj->pending.button = True;
         }
@@ -682,10 +686,10 @@ _subdev_add(InputInfoPtr pInfo, SubDevicePtr subdev) {
 }
 
 /**
- * Removes a SubDevice from the subdev_list list
+ * Gets any available subdevice
  */
 static SubDevicePtr
-_subdev_remove(InputInfoPtr pInfo, SubDevicePtr *subdev_list) {
+_subdev_get(InputInfoPtr pInfo, SubDevicePtr *subdev_list) {
     SubDevicePtr subdev;
 
     if (subdev_list == NULL || *subdev_list == NULL) {
@@ -698,6 +702,50 @@ _subdev_remove(InputInfoPtr pInfo, SubDevicePtr *subdev_list) {
     subdev->next = NULL;
 
     return subdev;
+}
+
+static void
+_subdev_remove(InputInfoPtr pInfo, InputInfoPtr sub_pInfo)
+{
+    TuioDevicePtr pTuio = pInfo->private;
+    SubDevicePtr *subdev_list = &pTuio->subdev_list;
+    SubDevicePtr subdev = *subdev_list, last;
+    ObjectPtr obj = pTuio->obj_list;
+    Bool found = False;
+
+    /* First try to find it in the list of subdevices */
+    if (subdev != NULL && subdev->pInfo == sub_pInfo) {
+        found = True;
+        *subdev_list = subdev->next;
+        xfree(subdev);
+    } else {
+        last = subdev;
+        subdev = subdev->next;
+        while (subdev != NULL) {
+            if (subdev->pInfo == sub_pInfo) {
+                last->next = subdev->next;
+                found = True;
+                xfree(subdev);
+                break;
+            }
+            last = subdev;
+            subdev = subdev->next;
+        }
+    }
+
+    /* If it still hasn't been found, find the object that is holding
+     * it */
+    if (!found) {
+        while (obj != NULL) {
+            if (obj->subdev != NULL && obj->subdev->pInfo == sub_pInfo) {
+                xfree(obj->subdev);
+                obj->subdev = NULL;
+                found = True;
+                break;
+            }
+            obj = obj->next;
+        }
+    }
 }
 
 /**
