@@ -718,7 +718,7 @@ _subdev_remove(InputInfoPtr pInfo, InputInfoPtr sub_pInfo)
         found = True;
         *subdev_list = subdev->next;
         xfree(subdev);
-    } else {
+    } else if (subdev != NULL) {
         last = subdev;
         subdev = subdev->next;
         while (subdev != NULL) {
