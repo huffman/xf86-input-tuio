@@ -756,12 +756,6 @@ _init_axes(DeviceIntPtr device)
                                        0))
         return BadAlloc;
 
-    /* Use absolute mode.  Currently, TUIO coords are mapped to the
-     * full screen area */
-    pInfo->dev->valuator->mode = Absolute;
-    if (!InitAbsoluteClassDeviceStruct(device))
-        return BadAlloc;
-
     for (i = 0; i < num_axes; i++)
     {
         xf86InitValuatorAxisStruct(device, i,
@@ -771,6 +765,13 @@ _init_axes(DeviceIntPtr device)
                                    0, 0x7FFFFFFF, 1, 1, 1);
         xf86InitValuatorDefaults(device, i);
     }
+
+    /* Use absolute mode.  Currently, TUIO coords are mapped to the
+     * full screen area */
+    pInfo->dev->valuator->mode = Absolute;
+    if (!InitAbsoluteClassDeviceStruct(device))
+        return BadAlloc;
+
     return Success;
 }
 
