@@ -26,8 +26,8 @@
 #include <unistd.h>
 
 #include <xf86Xinput.h>
-
 #include <xf86_OSlib.h>
+#include <xserver-properties.h>
 
 #include "tuio.h"
 
@@ -287,7 +287,7 @@ TuioReadInput(InputInfoPtr pInfo)
     ObjectPtr obj = pTuio->obj_list;
     SubDevicePtr *subdev_list = &pTuio->subdev_list;
     ObjectPtr objtmp;
-    int valuators[2];
+    int valuators[NUM_VALUATORS];
 
     while (xf86WaitForInput(pInfo->fd, 0) > 0)
     {
@@ -325,19 +325,23 @@ TuioReadInput(InputInfoPtr pInfo)
                      * If it has been updated and it has a subdevice to send
                      * events on, send the event) */
                     if (obj->pending.set && obj->subdev) {
-                        obj->x = obj->pending.x;
-                        obj->y = obj->pending.y;
+                        obj->xpos = obj->pending.xpos;
+                        obj->ypos = obj->pending.ypos;
+                        obj->xvel = obj->pending.xvel;
+                        obj->yvel = obj->pending.yvel;
                         obj->pending.set = False;
 
                         /* OKAY FOR NOW, maybe update with a better range? */
                         /* TODO: Add more valuators with additional information */
-                        valuators[0] = obj->x * 0x7FFFFFFF;
-                        valuators[1] = obj->y * 0x7FFFFFFF;
+                        valuators[0] = obj->xpos * 0x7FFFFFFF;
+                        valuators[1] = obj->ypos * 0x7FFFFFFF;
+                        valuators[2] = obj->xvel * 0x7FFFFFFF;
+                        valuators[3] = obj->yvel * 0x7FFFFFFF;
 
                         xf86PostMotionEventP(obj->subdev->pInfo->dev,
                                 TRUE, /* is_absolute */
                                 0, /* first_valuator */
-                                2, /* num_valuators */
+                                NUM_VALUATORS, /* num_valuators */
                                 valuators);
                         
                         if (obj->pending.button) {
@@ -531,8 +535,10 @@ _tuio_lo_2dcur_handle(const char *path,
                 obj->pending.button = True;
         }
 
-        obj->pending.x = argv[2]->f;
-        obj->pending.y = argv[3]->f;
+        obj->pending.xpos = argv[2]->f;
+        obj->pending.ypos = argv[3]->f;
+        obj->pending.xvel = argv[4]->f;
+        obj->pending.yvel = argv[5]->f;
         obj->pending.set = True;
 
     } else if (strcmp((char *)argv[0], "alive") == 0) {
@@ -755,7 +761,7 @@ _init_buttons(DeviceIntPtr device)
     InputInfoPtr        pInfo = device->public.devicePrivate;
     CARD8               *map;
     Atom                *labels;
-    int numbuttons = 4;
+    int numbuttons = 2;
     int                 ret = Success;
     int i;
 
@@ -764,7 +770,11 @@ _init_buttons(DeviceIntPtr device)
     for (i=0; i<numbuttons; i++)
         map[i] = i;
 
-    if (!InitButtonClassDeviceStruct(device, numbuttons /* 1 button */,
+    //map = xcalloc(1, sizeof(CARD8));
+    //*map = 3;
+    //label = XIGetKnownProperty("Button Left");
+
+    if (!InitButtonClassDeviceStruct(device, numbuttons/* 1 button */,
 #if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
                                      labels,
 #endif
@@ -785,10 +795,11 @@ _init_axes(DeviceIntPtr device)
 {
     InputInfoPtr        pInfo = device->public.devicePrivate;
     int                 i;
-    const int           num_axes = 2;
+    const int           num_axes = 5;
     Atom *atoms;
 
     atoms = xcalloc(num_axes, sizeof(Atom));
+    //atom[0] = XI
 
     if (!InitValuatorClassDeviceStruct(device,
                                        num_axes,
@@ -802,13 +813,23 @@ _init_axes(DeviceIntPtr device)
                                        0))
         return BadAlloc;
 
-    for (i = 0; i < num_axes; i++)
+    for (i = 0; i < 2; i++)
     {
         xf86InitValuatorAxisStruct(device, i,
 #if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
                                    atoms[i],
 #endif
                                    0, 0x7FFFFFFF, 1, 1, 1);
+        xf86InitValuatorDefaults(device, i);
+    }
+
+    for (i = 2; i < 6; i++)
+    {
+        xf86InitValuatorAxisStruct(device, i,
+#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 7
+                                   atoms[i],
+#endif
+                                   0x80000000, 0x7FFFFFFF, 1, 1, 1);
         xf86InitValuatorDefaults(device, i);
     }
 

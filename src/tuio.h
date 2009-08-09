@@ -47,6 +47,12 @@
 
 #define DEFAULT_PORT 3333 /* Default UDP port to listen on */
 
+/* Valuators */
+#define NUM_VALUATORS 4
+#define VAL_X_VELOCITY "X Velocity"
+#define VAL_Y_VELOCITY "Y Velocity"
+#define VAL_ACCELERATION "Acceleration"
+
 /**
  * Tuio device information, including list of current object
  */
@@ -82,7 +88,8 @@ typedef struct _Object {
     struct _Object *next;
 
     int id;
-    float x, y;
+    float xpos, ypos;
+    float xvel, yvel;
     int alive;
     struct _SubDevice *subdev;
 
@@ -91,7 +98,8 @@ typedef struct _Object {
         Bool alive;
         Bool set;
         Bool button;
-        float x, y;
+        float xpos, ypos;
+        float xvel, yvel;
     } pending;
 } ObjectRec, *ObjectPtr;
 
