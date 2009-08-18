@@ -1,8 +1,10 @@
 .\" shorthand for double quote that works everywhere.
 .ds q \N'34'
 .TH TUIO __drivermansuffix__ __vendorversion__
+
 .SH NAME
 tuio \- Multitouch TUIO Linux input driver
+
 .SH SYNOPSIS
 .nf
 .B "Section \*qInputDevice\*q"
@@ -14,25 +16,39 @@ tuio \- Multitouch TUIO Linux input driver
 \ \ ...
 .B EndSection
 .fi
+
 .SH DESCRIPTION
 .B tuio
-is an __xservername__ input driver.
+is an __xservername__ input driver. It listens for TUIO data on a specified 
+port (see SYNOPSIS) and relays these events as X input events across multiple 
+subdevices.  Because TUIO is a multitouch protocol, and currently there is no 
+way to send native multitouch events, regular input events must be sent through
+multiple devices. To facilitate this, the driver will create new devices (dubbed
+subdevices) through HAL that it will use for the sole purpose of sending events 
+through.  In MPX/XI2, it is most effective to attach these subdevices to their
+own master devices (see Tuio Monitor Daemon, or tmd).
+
+For more information on the TUIO protocol, see http://www.tuio.org/
 .PP
+
 .SH SUPPORTED HARDWARE
-TODO
+TUIO based devices (this is more of a software requirement than anything)
 .PP
+
 .SH CONFIGURATION DETAILS
 TODO
 .PP
+
 .SH SUPPORTED PROPERTIES
 The following properties are provided by the
 .B tuio
 driver.
 
-TODO
+Currently none.
 
 .SH AUTHORS
 Ryan Huffman <ryanhuffman@gmail.com>
+
 .SH "SEE ALSO"
 __xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), Xserver(__appmansuffix__), X(__miscmansuffix__),
 .
