@@ -1,6 +1,6 @@
 xf86-input-tuio - Linux input driver for use with TUIO devices
 
-NOTE: This driver is still being developed and is not yet usable
+NOTE: This driver is still being developed and may not be stable
 
 Please submit bugs & patches to the NUI Group MPX TUIO Driver project page:
     

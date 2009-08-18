@@ -21,12 +21,13 @@ tuio \- Multitouch TUIO Linux input driver
 .B tuio
 is an __xservername__ input driver. It listens for TUIO data on a specified 
 port (see SYNOPSIS) and relays these events as X input events across multiple 
-subdevices.  Because TUIO is a multitouch protocol, and currently there is no 
+subdevices.  Because TUIO is a multitouch protocol, and because there is currently no 
 way to send native multitouch events, regular input events must be sent through
-multiple devices. To facilitate this, the driver will create new devices (dubbed
-subdevices) through HAL that it will use for the sole purpose of sending events 
+multiple devices. To facilitate this, the driver creates new devices (dubbed
+subdevices) through HAL that it will use for the sole purpose of sending events
 through.  In MPX/XI2, it is most effective to attach these subdevices to their
-own master devices (see Tuio Monitor Daemon, or tmd).
+own master devices (see Tuio Monitor Daemon, or tmd, for automation of this 
+process).
 
 For more information on the TUIO protocol, see http://www.tuio.org/
 .PP
@@ -36,15 +37,25 @@ TUIO based devices (this is more of a software requirement than anything)
 .PP
 
 .SH CONFIGURATION DETAILS
-TODO
+This section covers configuration details for this driver.
 .PP
+The following driver options are supported:
+.TP 7
+.BI "Option \*qPort\*q \*q" integer \*q
+Sets the UDP port to listen for TUIO messages on.  Must be a valid
+port number.
+.TP 7
+.BI "Option \*qSubDevices\*q \*q" integer \*q
+.TP 7
+.BI "Option \*qPostButtonEvents\*q \*q" boolean \*q
+Enable/disable button down/up events.
 
 .SH SUPPORTED PROPERTIES
 The following properties are provided by the
 .B tuio
 driver.
 
-Currently none.
+NONE
 
 .SH AUTHORS
 Ryan Huffman <ryanhuffman@gmail.com>
