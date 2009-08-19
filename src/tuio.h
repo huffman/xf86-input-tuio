@@ -43,9 +43,9 @@
 
 #define MIN_SUBDEVICES 0 /* min/max subdevices */
 #define MAX_SUBDEVICES 20
-#define DEFAULT_SUBDEVICES 5
-
+#define DEFAULT_SUBDEVICES 0
 #define DEFAULT_PORT 3333 /* Default UDP port to listen on */
+#define DEFAULT_FSEQ_THRESHOLD 100 /* Default UDP port to listen on */
 
 /* Valuators */
 #define NUM_VALUATORS 4

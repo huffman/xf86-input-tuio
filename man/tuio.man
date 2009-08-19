@@ -44,11 +44,25 @@ The following driver options are supported:
 .BI "Option \*qPort\*q \*q" integer \*q
 Sets the UDP port to listen for TUIO messages on.  Must be a valid
 port number.
+The default for this value is 3333.
 .TP 7
 .BI "Option \*qSubDevices\*q \*q" integer \*q
+Sets the number of subdevices to be created when the device is first turned
+on.
+The default for this value is 0.
 .TP 7
 .BI "Option \*qPostButtonEvents\*q \*q" boolean \*q
-Enable/disable button down/up events.
+Enable/disable button down/up events. If this is set to True, the driver will
+post "Left Button" down and up events when a TUIO 2Dcur is added and removed,
+respectively.
+The default for this value is True.
+.TP 7
+.BI "Option \*qFseqThreshold\*q \*q" integer \*q
+Sets the maximum threshold within which "old" packets will be dropped.  Each
+TUIO packet contains a frame sequence (fseq) number which is increased by 1
+for each successive new packet. If a new packet contains a lower fseq than the
+previously received packet, it will be dropped if it is within this threshold.
+The default for this value is 100.
 
 .SH SUPPORTED PROPERTIES
 The following properties are provided by the

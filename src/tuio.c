@@ -225,7 +225,7 @@ TuioPreInit(InputDriverPtr drv,
 
         /* Get setting for checking fseq numbers in TUIO packets */
         pTuio->fseq_threshold= xf86CheckIntOption(dev->commonOptions,
-                "FseqThreshold", 100);
+                "FseqThreshold", DEFAULT_FSEQ_THRESHOLD);
         if (pTuio->fseq_threshold < 0) {
             pTuio->fseq_threshold = 0;
         }
@@ -813,6 +813,7 @@ _init_axes(DeviceIntPtr device)
                                        0))
         return BadAlloc;
 
+    /* Setup x/y axes */
     for (i = 0; i < 2; i++)
     {
         xf86InitValuatorAxisStruct(device, i,
@@ -823,6 +824,7 @@ _init_axes(DeviceIntPtr device)
         xf86InitValuatorDefaults(device, i);
     }
 
+    /* Setup velocity and acceleration axes */
     for (i = 2; i < 6; i++)
     {
         xf86InitValuatorAxisStruct(device, i,
