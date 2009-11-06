@@ -314,11 +314,23 @@ TuioReadInput(InputInfoPtr pInfo)
                         /* Post button "up" event */
                         xf86PostButtonEvent(obj->subdev->pInfo->dev, TRUE, 1, FALSE, 0, 0);
                     }
+                    valuators[0] = 0x7FFFFFFF;
+                    valuators[1] = 0x7FFFFFFF;
+                    valuators[2] = 0;
+                    valuators[3] = 0;
+
+                    xf86PostMotionEventP(obj->subdev->pInfo->dev,
+                            TRUE, /* is_absolute */
+                            0, /* first_valuator */
+                            NUM_VALUATORS, /* num_valuators */
+                            valuators);
+
                     objtmp = obj->next;
                     obj = _object_remove(obj_list, obj->id);
                     _subdev_add(pInfo, obj->subdev);
                     xfree(obj);
                     obj = objtmp;
+
 
                 } else {
                     /* Object is alive.  Check to see if an update has been set.
