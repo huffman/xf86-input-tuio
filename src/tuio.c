@@ -236,6 +236,10 @@ TuioPreInit(InputDriverPtr drv,
          * object add & remove */
         pTuio->post_button_events = xf86CheckBoolOption(dev->commonOptions,
                 "PostButtonEvents", True);
+
+        /* Get setting for whether to hide devices when idle */
+        pTuio->hide_devices = xf86CheckBoolOption(dev->commonOptions,
+                "PseudoHide", True);
     }
 
     /* Set up InputInfoPtr */

@@ -74,6 +74,7 @@ typedef struct _TuioDevice {
     int tuio_port;
     int init_num_subdev;
     Bool post_button_events;
+    Bool hide_devices;
     int fseq_threshold; /* Maximum difference between consecutive fseq values
                            that will allow a packet to be dropped */
     Bool dynadd_subdev;
