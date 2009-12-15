@@ -23,6 +23,10 @@
  *	Ryan Huffman (ryanhuffman@gmail.com)
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <unistd.h>
 
 #include <xf86Xinput.h>
@@ -30,10 +34,6 @@
 #include <xserver-properties.h>
 
 #include "tuio.h"
-
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 /* InputInfoPtr for main tuio device */
 static InputInfoPtr g_pInfo;
