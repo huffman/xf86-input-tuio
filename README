@@ -1,12 +1,4 @@
 xf86-input-tuio - Linux input driver for use with TUIO devices
 
-NOTE: This driver is still being developed and may not be stable
+Written as part of a Google Summer of Code project.
 
-Please submit bugs & patches to the NUI Group MPX TUIO Driver project page:
-    
-    http://nuicode.com/projects/gsoc-mpx
-    (Create a new task)
-
-Currently, the development code can be found at:
-
-    git://repo.or.cz/xf86-input-tuio.git
